@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- a d6 showing three, tilted nowhere, kept inside the adaptive safe zone -->
+    <path
+        android:fillColor="#FF9E2C"
+        android:pathData="M38,30 h32 a8,8 0 0 1 8,8 v32 a8,8 0 0 1 -8,8 h-32 a8,8 0 0 1 -8,-8 v-32 a8,8 0 0 1 8,-8 z" />
+    <path
+        android:fillColor="#15110B"
+        android:pathData="M42,37.5 a4.5,4.5 0 1 0 0.02,0 z" />
+    <path
+        android:fillColor="#15110B"
+        android:pathData="M54,49.5 a4.5,4.5 0 1 0 0.02,0 z" />
+    <path
+        android:fillColor="#15110B"
+        android:pathData="M66,61.5 a4.5,4.5 0 1 0 0.02,0 z" />
+</vector>
