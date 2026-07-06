@@ -21,6 +21,7 @@ data class RollUiState(
     val mutations: Int = 0,
     val disabledHeroes: Set<String> = emptySet(),
     val mysteryEnabled: Boolean = true,
+    val noChallengeMode: Boolean = false,
 )
 
 class RollViewModel(application: Application) : AndroidViewModel(application) {
@@ -31,6 +32,7 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         RollUiState(
             disabledHeroes = prefs.getStringSet(KEY_DISABLED_HEROES, null).orEmpty().toSet(),
             mysteryEnabled = prefs.getBoolean(KEY_MYSTERY, true),
+            noChallengeMode = prefs.getBoolean(KEY_NO_CHALLENGE, false),
         )
     )
         private set
@@ -82,18 +84,30 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         state = state.copy(mysteryEnabled = enabled)
     }
 
+    fun toggleNoChallengeMode() {
+        val enabled = !state.noChallengeMode
+        prefs.edit().putBoolean(KEY_NO_CHALLENGE, enabled).apply()
+        state = state.copy(noChallengeMode = enabled)
+    }
+
     fun roll() {
         val hero = engine.rollHero(state.roleFilter, state.disabledHeroes)
         // the rare ??? wildcard: a constraint that decides your hero instead
-        // of the roll. the chance check always runs so squad seeds stay in step
-        val mystery = engine.rollMysteryChance() && state.mysteryEnabled
+        // of the roll. the chance check always runs so squad seeds stay in step.
+        // no-challenge mode skips wildcards; a hidden hero makes no sense there
+        val mystery = engine.rollMysteryChance() && state.mysteryEnabled && !state.noChallengeMode
         val challenge = (if (mystery) engine.rollMysteryChallenge(state.poolMode) else null)
             ?: engine.rollChallenge(hero.role, state.poolMode)
         // always roll the punishment so the stakes toggle can show and hide the
         // same one, and so squad seeds stay in step whatever anyone toggles
         val punishment = engine.rollPunishment()
+        val result = if (state.noChallengeMode) {
+            RollResult(hero, emptyList(), punishment, pendingChallenge = challenge)
+        } else {
+            RollResult(hero, listOf(challenge), punishment)
+        }
         state = state.copy(
-            result = RollResult(hero, listOf(challenge), punishment),
+            result = result,
             rollId = state.rollId + 1,
             mutations = 0,
         )
@@ -102,6 +116,7 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
     /** Keep the hero, reroll the newest challenge on the stack. */
     fun mutate() {
         val current = state.result ?: return
+        if (current.challenges.isEmpty()) return
         val fresh = engine.rollChallenge(current.hero.role, state.poolMode, exclude = current.challenges)
         val challenges = current.challenges.dropLast(1) + fresh
         state = state.copy(
@@ -113,6 +128,18 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
     /** Stack one more constraint on top of whatever is already rolling. */
     fun escalate() {
         val current = state.result ?: return
+        // no-challenge mode: the first escalate deals the constraint the roll
+        // was holding back, and it lands locked like any opener
+        val pending = current.pendingChallenge
+        if (pending != null) {
+            state = state.copy(
+                result = current.copy(
+                    challenges = current.challenges + pending,
+                    pendingChallenge = null,
+                )
+            )
+            return
+        }
         val extra = engine.rollChallenge(current.hero.role, state.poolMode, exclude = current.challenges)
         state = state.copy(result = current.copy(challenges = current.challenges + extra))
     }
@@ -128,5 +155,6 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
     private companion object {
         const val KEY_DISABLED_HEROES = "disabled_heroes"
         const val KEY_MYSTERY = "mystery_enabled"
+        const val KEY_NO_CHALLENGE = "no_challenge_mode"
     }
 }

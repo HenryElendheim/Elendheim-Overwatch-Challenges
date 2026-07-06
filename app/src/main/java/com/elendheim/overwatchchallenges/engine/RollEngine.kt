@@ -13,11 +13,15 @@ import kotlin.random.Random
  * One roll: a hero, one or more stacked challenges, and a punishment for
  * failing. The punishment always gets rolled; the stakes toggle just decides
  * whether it's shown.
+ *
+ * In no-challenge mode the rolled constraint waits in [pendingChallenge]
+ * instead of the stack; the first escalate deals it out as the locked opener.
  */
 data class RollResult(
     val hero: Hero,
     val challenges: List<Challenge>,
     val punishment: String,
+    val pendingChallenge: Challenge? = null,
 )
 
 /**

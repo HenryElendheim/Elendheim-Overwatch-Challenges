@@ -34,6 +34,9 @@ queue.
 - **??? rolls**: about one roll in fifty skips the hero entirely and hands
   you a wildcard constraint that decides who you play. There's a switch in
   settings if you'd rather every roll land on a hero.
+- **No Challenge Mode**: rolls hand you a hero and nothing else. Escalate
+  deals the constraint the roll was holding back, locked in like any opener.
+  Lives in settings.
 
 ## Building it
 

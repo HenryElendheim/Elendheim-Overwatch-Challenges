@@ -305,7 +305,11 @@ private fun ResultScreen(
 
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedButton(onClick = viewModel::mutate, modifier = Modifier.weight(1f)) {
+            OutlinedButton(
+                onClick = viewModel::mutate,
+                enabled = result.challenges.isNotEmpty(),
+                modifier = Modifier.weight(1f),
+            ) {
                 Text("Mutate")
             }
             OutlinedButton(onClick = viewModel::escalate, modifier = Modifier.weight(1f)) {
@@ -441,6 +445,14 @@ private fun ResultCard(
             }
 
             Spacer(Modifier.height(18.dp))
+            if (result.challenges.isEmpty() && result.pendingChallenge != null) {
+                Text(
+                    text = "No constraint this time. Escalate deals the one you were owed, " +
+                        "and that one's locked in.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Ash,
+                )
+            }
             result.challenges.forEachIndexed { index, challenge ->
                 ChallengeItem(
                     challenge = challenge,
@@ -610,6 +622,27 @@ private fun SettingsScreen(
                 text = "About one roll in fifty comes up as a wildcard: no hero, just a " +
                     "constraint that decides who you play. Turn it off if you want every " +
                     "roll to land on a hero.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Ash,
+            )
+
+            HorizontalDivider(Modifier.padding(vertical = 18.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "No Challenge Mode",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(
+                    checked = state.noChallengeMode,
+                    onCheckedChange = { viewModel.toggleNoChallengeMode() },
+                )
+            }
+            Text(
+                text = "Rolls hand you a hero and nothing else. When you're ready, escalate " +
+                    "deals the constraint the roll was holding back, and that one can't be " +
+                    "swiped away.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Ash,
             )
