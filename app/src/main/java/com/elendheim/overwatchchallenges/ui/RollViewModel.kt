@@ -1,9 +1,11 @@
 package com.elendheim.overwatchchallenges.ui
 
+import android.app.Application
+import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import com.elendheim.overwatchchallenges.data.PoolMode
 import com.elendheim.overwatchchallenges.data.Role
 import com.elendheim.overwatchchallenges.engine.RollEngine
@@ -17,11 +19,16 @@ data class RollUiState(
     val result: RollResult? = null,
     val rollId: Int = 0,
     val mutations: Int = 0,
+    val disabledHeroes: Set<String> = emptySet(),
 )
 
-class RollViewModel : ViewModel() {
+class RollViewModel(application: Application) : AndroidViewModel(application) {
 
-    var state by mutableStateOf(RollUiState())
+    private val prefs = application.getSharedPreferences("elendheim", Context.MODE_PRIVATE)
+
+    var state by mutableStateOf(
+        RollUiState(disabledHeroes = prefs.getStringSet(KEY_DISABLED_HEROES, null).orEmpty().toSet())
+    )
         private set
 
     private var engine = RollEngine()
@@ -46,8 +53,16 @@ class RollViewModel : ViewModel() {
         state = state.copy(squadSeed = clean, result = null, mutations = 0)
     }
 
+    /** Tap a hero in settings to ban them from the roller, tap again to allow them. */
+    fun toggleHero(name: String) {
+        val disabled = state.disabledHeroes.toMutableSet()
+        if (!disabled.add(name)) disabled.remove(name)
+        prefs.edit().putStringSet(KEY_DISABLED_HEROES, disabled).apply()
+        state = state.copy(disabledHeroes = disabled)
+    }
+
     fun roll() {
-        val hero = engine.rollHero(state.roleFilter)
+        val hero = engine.rollHero(state.roleFilter, state.disabledHeroes)
         val challenge = engine.rollChallenge(hero.role, state.poolMode)
         // always roll the punishment so the stakes toggle can show and hide the
         // same one, and so squad seeds stay in step whatever anyone toggles
@@ -83,5 +98,9 @@ class RollViewModel : ViewModel() {
         if (index <= 0 || index >= current.challenges.size) return
         val challenges = current.challenges.filterIndexed { i, _ -> i != index }
         state = state.copy(result = current.copy(challenges = challenges))
+    }
+
+    private companion object {
+        const val KEY_DISABLED_HEROES = "disabled_heroes"
     }
 }

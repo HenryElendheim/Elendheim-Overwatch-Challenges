@@ -26,8 +26,11 @@ queue.
   and the punishment applies to your next game. Toggling stakes off and on
   brings back the same punishment; it only changes when you reroll.
 - **Squad sync** gives everyone who enters the same word the same roll
-  sequence, so the whole group shares one chaos theme. Filters have to match
-  and everyone taps in the same order.
+  sequence, so the whole group shares one chaos theme. Filters and hero bans
+  have to match and everyone taps in the same order. Lives in settings.
+- **Hero bans** live in settings too: the full roster is listed by role, and
+  tapping a hero removes them from the roller until you tap them back in.
+  Bans stick between launches.
 
 ## Building it
 

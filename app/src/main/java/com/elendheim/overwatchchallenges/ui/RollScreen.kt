@@ -1,8 +1,11 @@
 package com.elendheim.overwatchchallenges.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -13,11 +16,12 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,7 +32,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -50,17 +53,22 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.elendheim.overwatchchallenges.data.Challenge
+import com.elendheim.overwatchchallenges.data.Hero
 import com.elendheim.overwatchchallenges.data.PoolMode
 import com.elendheim.overwatchchallenges.data.Role
 import com.elendheim.overwatchchallenges.data.Roster
@@ -69,6 +77,7 @@ import com.elendheim.overwatchchallenges.ui.theme.Ash
 import com.elendheim.overwatchchallenges.ui.theme.DamageRed
 import com.elendheim.overwatchchallenges.ui.theme.SupportGreen
 import com.elendheim.overwatchchallenges.ui.theme.TankBlue
+import kotlin.math.abs
 import kotlin.random.Random
 import kotlinx.coroutines.delay
 
@@ -82,96 +91,177 @@ private val Role.tint
 @Composable
 fun RollScreen(viewModel: RollViewModel = viewModel()) {
     val state = viewModel.state
-    var showSquadDialog by remember { mutableStateOf(false) }
+    var showSettings by rememberSaveable { mutableStateOf(false) }
+    var landedRollId by rememberSaveable { mutableIntStateOf(0) }
+
+    BackHandler(enabled = showSettings) { showSettings = false }
+
+    val screenKey = when {
+        showSettings -> "settings"
+        state.result == null -> "start"
+        state.rollId > landedRollId -> "spin"
+        else -> "result"
+    }
 
     Scaffold { innerPadding ->
-        Column(
+        AnimatedContent(
+            targetState = screenKey,
+            transitionSpec = {
+                (fadeIn(tween(420, delayMillis = 90)) +
+                    scaleIn(tween(420, delayMillis = 90), initialScale = 0.94f))
+                    .togetherWith(fadeOut(tween(150)))
+            },
+            label = "screen",
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 20.dp)
-        ) {
-            Header(
-                squadSeed = state.squadSeed,
-                onSquadClick = { showSquadDialog = true },
-            )
+                .padding(innerPadding),
+        ) { screen ->
+            when (screen) {
+                "settings" -> SettingsScreen(
+                    state = state,
+                    viewModel = viewModel,
+                    onBack = { showSettings = false },
+                )
 
-            AnimatedContent(
-                targetState = state.result,
-                contentKey = { it != null },
-                transitionSpec = {
-                    (fadeIn(tween(450, delayMillis = 120)) +
-                        scaleIn(tween(450, delayMillis = 120), initialScale = 0.92f))
-                        .togetherWith(fadeOut(tween(160)))
-                },
-                label = "screen",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-            ) { result ->
-                if (result == null) {
-                    StartContent(onRoll = viewModel::roll)
-                } else {
-                    RolledContent(state = state, result = result, viewModel = viewModel)
+                "start" -> StartScreen(
+                    onRoll = viewModel::roll,
+                    onSettings = { showSettings = true },
+                )
+
+                "spin" -> SpinScreen(
+                    state = state,
+                    onLanded = { landedRollId = state.rollId },
+                )
+
+                else -> state.result?.let { result ->
+                    ResultScreen(
+                        state = state,
+                        result = result,
+                        viewModel = viewModel,
+                        onSettings = { showSettings = true },
+                    )
                 }
             }
         }
     }
-
-    if (showSquadDialog) {
-        SquadSeedDialog(
-            current = state.squadSeed,
-            onDismiss = { showSquadDialog = false },
-            onConfirm = { seed ->
-                viewModel.setSquadSeed(seed)
-                showSquadDialog = false
-            },
-        )
-    }
 }
 
-/** First launch: nothing but the big button. Everything else arrives after the first roll. */
 @Composable
-private fun StartContent(onRoll: () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        val pulse by rememberInfiniteTransition(label = "pulse").animateFloat(
-            initialValue = 1f,
-            targetValue = 1.04f,
-            animationSpec = infiniteRepeatable(tween(850), RepeatMode.Reverse),
-            label = "pulseScale",
-        )
-        Button(
-            onClick = onRoll,
-            shape = CircleShape,
+private fun StartScreen(onRoll: () -> Unit, onSettings: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        Header(onSettings = onSettings)
+        Column(
             modifier = Modifier
-                .size(210.dp)
-                .graphicsLayer {
-                    scaleX = pulse
-                    scaleY = pulse
-                },
+                .fillMaxWidth()
+                .weight(1f),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
         ) {
+            val pulse by rememberInfiniteTransition(label = "pulse").animateFloat(
+                initialValue = 1f,
+                targetValue = 1.04f,
+                animationSpec = infiniteRepeatable(tween(850), RepeatMode.Reverse),
+                label = "pulseScale",
+            )
+            Button(
+                onClick = onRoll,
+                shape = CircleShape,
+                modifier = Modifier
+                    .size(210.dp)
+                    .graphicsLayer {
+                        scaleX = pulse
+                        scaleY = pulse
+                    },
+            ) {
+                Text(
+                    text = "Roll",
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Spacer(Modifier.height(22.dp))
             Text(
-                text = "Roll",
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.Bold,
+                text = "Get a hero. Get a constraint. Survive it.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Ash,
             )
         }
-        Spacer(Modifier.height(22.dp))
-        Text(
-            text = "Get a hero. Get a constraint. Survive it.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = Ash,
-        )
     }
 }
 
+/**
+ * The full-screen reel. Every hero still in the pool flies past at least
+ * once, the scroll decelerates with a slight overshoot, and it settles on
+ * the rolled hero before handing over to the result screen.
+ */
 @Composable
-private fun RolledContent(state: RollUiState, result: RollResult, viewModel: RollViewModel) {
-    Column(Modifier.fillMaxSize()) {
+private fun SpinScreen(state: RollUiState, onLanded: () -> Unit) {
+    val result = state.result ?: return
+    val reel = remember(state.rollId) {
+        val base = state.roleFilter?.let(Roster::byRole) ?: Roster.heroes
+        val pool = base.filterNot { it.name in state.disabledHeroes }.ifEmpty { base }
+        buildReel(pool, result.hero, state.rollId)
+    }
+    // the target sits two entries before the end so the overshoot has
+    // something to scroll past
+    val targetIndex = reel.size - 3
+    val itemPx = with(LocalDensity.current) { 96.dp.toPx() }
+    val offset = remember(state.rollId) { Animatable(0f) }
+
+    LaunchedEffect(state.rollId) {
+        offset.animateTo(
+            targetValue = targetIndex * itemPx,
+            animationSpec = tween(
+                durationMillis = (1600 + reel.size * 24).coerceAtMost(3200),
+                easing = CubicBezierEasing(0.16f, 0.84f, 0.28f, 1.04f),
+            ),
+        )
+        delay(340)
+        onLanded()
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        reel.forEachIndexed { index, hero ->
+            Text(
+                text = hero.name,
+                style = MaterialTheme.typography.displaySmall,
+                fontWeight = FontWeight.Bold,
+                color = hero.role.tint,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .graphicsLayer {
+                        val dy = (index - offset.value / itemPx) * itemPx
+                        translationY = dy
+                        val distance = abs(dy) / (itemPx * 3f)
+                        alpha = (1f - distance * distance).coerceIn(0f, 1f)
+                        val scale = 1f - 0.3f * (abs(dy) / (itemPx * 2f)).coerceAtMost(1f)
+                        scaleX = scale
+                        scaleY = scale
+                    },
+            )
+        }
+    }
+}
+
+private fun buildReel(pool: List<Hero>, target: Hero, rollId: Int): List<Hero> {
+    val random = Random(rollId * 6007L + 97)
+    val lead = mutableListOf<Hero>()
+    lead += pool.shuffled(random)
+    while (lead.size < 22) lead += pool.shuffled(random)
+    if (lead.last() == target) lead.removeAt(lead.lastIndex)
+    return lead + target + List(2) { pool.random(random) }
+}
+
+@Composable
+private fun ResultScreen(
+    state: RollUiState,
+    result: RollResult,
+    viewModel: RollViewModel,
+    onSettings: () -> Unit,
+) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        Header(onSettings = onSettings)
+
         Spacer(Modifier.height(16.dp))
         RoleFilterRow(selected = state.roleFilter, onSelect = viewModel::setRoleFilter)
 
@@ -222,7 +312,7 @@ private fun RolledContent(state: RollUiState, result: RollResult, viewModel: Rol
 }
 
 @Composable
-private fun Header(squadSeed: String?, onSquadClick: () -> Unit) {
+private fun Header(onSettings: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(
@@ -236,8 +326,8 @@ private fun Header(squadSeed: String?, onSquadClick: () -> Unit) {
                 fontWeight = FontWeight.Bold,
             )
         }
-        TextButton(onClick = onSquadClick) {
-            Text(if (squadSeed == null) "Squad" else "Squad: $squadSeed")
+        TextButton(onClick = onSettings) {
+            Text("Settings")
         }
     }
 }
@@ -296,26 +386,6 @@ private fun ResultCard(
     onRemove: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var shownHero by remember { mutableStateOf(result.hero) }
-    var revealed by remember { mutableStateOf(false) }
-
-    // the slot-machine pass: flick through the roster, slow down, land on the
-    // rolled hero, then let the constraints in
-    LaunchedEffect(state.rollId) {
-        revealed = false
-        val pool = state.roleFilter?.let(Roster::byRole) ?: Roster.heroes
-        val spinRandom = Random(state.rollId.toLong())
-        var stepMs = 45L
-        while (stepMs < 330L) {
-            shownHero = pool.random(spinRandom)
-            delay(stepMs)
-            stepMs = (stepMs * 5 / 4) + 8
-        }
-        shownHero = result.hero
-        delay(140)
-        revealed = true
-    }
-
     Card(
         modifier = modifier,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -325,70 +395,54 @@ private fun ResultCard(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(20.dp)
+                .animateContentSize()
         ) {
             Text(
-                text = shownHero.role.label.uppercase(),
+                text = result.hero.role.label.uppercase(),
                 style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp),
-                color = shownHero.role.tint,
+                color = result.hero.role.tint,
             )
-            AnimatedContent(
-                targetState = shownHero,
-                transitionSpec = {
-                    (slideInVertically(tween(90)) { it / 2 } + fadeIn(tween(90)))
-                        .togetherWith(slideOutVertically(tween(90)) { -it / 2 } + fadeOut(tween(90)))
-                },
-                label = "heroSpin",
-            ) { hero ->
+            Text(
+                text = result.hero.name,
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            if (result.challenges.any { it.overridesHero }) {
+                Spacer(Modifier.height(4.dp))
                 Text(
-                    text = hero.name,
-                    style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.Bold,
+                    text = "One of these constraints picks your hero for you. The roll above is just a suggestion.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Ash,
+                )
+            }
+
+            Spacer(Modifier.height(18.dp))
+            result.challenges.forEachIndexed { index, challenge ->
+                ChallengeItem(
+                    challenge = challenge,
+                    index = index,
+                    removable = index > 0,
+                    onRemove = { onRemove(index) },
                 )
             }
 
             AnimatedVisibility(
-                visible = revealed,
-                enter = fadeIn(tween(350)) + slideInVertically(tween(350)) { it / 4 },
+                visible = state.stakes,
+                enter = fadeIn(tween(250)) + slideInVertically(tween(250)) { it / 4 },
+                exit = fadeOut(tween(200)),
             ) {
-                Column(Modifier.animateContentSize()) {
-                    if (result.challenges.any { it.overridesHero }) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = "One of these constraints picks your hero for you. The roll above is just a suggestion.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Ash,
-                        )
-                    }
-
-                    Spacer(Modifier.height(18.dp))
-                    result.challenges.forEachIndexed { index, challenge ->
-                        ChallengeItem(
-                            challenge = challenge,
-                            index = index,
-                            removable = index > 0,
-                            onRemove = { onRemove(index) },
-                        )
-                    }
-
-                    AnimatedVisibility(
-                        visible = state.stakes,
-                        enter = fadeIn(tween(250)) + slideInVertically(tween(250)) { it / 4 },
-                        exit = fadeOut(tween(200)),
-                    ) {
-                        Column {
-                            Spacer(Modifier.height(22.dp))
-                            Text(
-                                text = "IF YOU FAIL",
-                                style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp),
-                                color = MaterialTheme.colorScheme.error,
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = result.punishment,
-                                style = MaterialTheme.typography.bodyLarge,
-                            )
-                        }
-                    }
+                Column {
+                    Spacer(Modifier.height(22.dp))
+                    Text(
+                        text = "IF YOU FAIL",
+                        style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = result.punishment,
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
                 }
             }
         }
@@ -404,7 +458,7 @@ private fun ChallengeItem(
 ) {
     // key on the text so a mutate or escalate composes a fresh item that
     // plays its own entrance
-    androidx.compose.runtime.key(challenge.text) {
+    key(challenge.text) {
         val appear = remember { MutableTransitionState(false).apply { targetState = true } }
         AnimatedVisibility(
             visibleState = appear,
@@ -422,15 +476,7 @@ private fun ChallengeItem(
                     )
                     SwipeToDismissBox(
                         state = dismissState,
-                        backgroundContent = {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = "Removed",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.error,
-                                )
-                            }
-                        },
+                        backgroundContent = {},
                     ) {
                         ChallengeBlock(challenge)
                     }
@@ -458,38 +504,104 @@ private fun ChallengeBlock(challenge: Challenge) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SquadSeedDialog(
-    current: String?,
-    onDismiss: () -> Unit,
-    onConfirm: (String?) -> Unit,
+private fun SettingsScreen(
+    state: RollUiState,
+    viewModel: RollViewModel,
+    onBack: () -> Unit,
 ) {
-    var seedText by remember { mutableStateOf(current.orEmpty()) }
+    var seedText by remember { mutableStateOf(state.squadSeed.orEmpty()) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Squad sync") },
-        text = {
-            Column {
-                Text(
-                    "Everyone who enters the same word gets the same rolls, " +
-                        "as long as your filters match and you tap in the same order. " +
-                        "One chaos theme for the whole group."
-                )
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = seedText,
-                    onValueChange = { seedText = it },
-                    label = { Text("Squad word") },
-                    singleLine = true,
-                )
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Settings",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onBack) { Text("Done") }
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Spacer(Modifier.height(8.dp))
+            Text("Squad sync", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Everyone who enters the same word gets the same rolls, as long as " +
+                    "filters and hero bans match and you tap in the same order. Setting a " +
+                    "word starts a fresh sequence.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Ash,
+            )
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = seedText,
+                onValueChange = { seedText = it },
+                label = { Text("Squad word") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = { viewModel.setSquadSeed(seedText) },
+                    modifier = Modifier.weight(1f),
+                ) { Text("Sync") }
+                OutlinedButton(
+                    onClick = {
+                        seedText = ""
+                        viewModel.setSquadSeed(null)
+                    },
+                    modifier = Modifier.weight(1f),
+                ) { Text("Go solo") }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(seedText) }) { Text("Sync") }
-        },
-        dismissButton = {
-            TextButton(onClick = { onConfirm(null) }) { Text("Go solo") }
-        },
-    )
+            Text(
+                text = if (state.squadSeed == null) "Rolling solo." else "Synced on \"${state.squadSeed}\".",
+                style = MaterialTheme.typography.labelMedium,
+                color = Ash,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+
+            HorizontalDivider(Modifier.padding(vertical = 18.dp))
+
+            Text("Hero pool", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Tap a hero to ban them from the roller, tap again to bring them back. " +
+                    "If you ban everything the roller can land on, it ignores the bans " +
+                    "rather than rolling nothing.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Ash,
+            )
+
+            Role.entries.forEach { role ->
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    text = role.label.uppercase(),
+                    style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp),
+                    color = role.tint,
+                )
+                Spacer(Modifier.height(6.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Roster.byRole(role).forEach { hero ->
+                        FilterChip(
+                            selected = hero.name !in state.disabledHeroes,
+                            onClick = { viewModel.toggleHero(hero.name) },
+                            label = { Text(hero.name) },
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+        }
+    }
 }

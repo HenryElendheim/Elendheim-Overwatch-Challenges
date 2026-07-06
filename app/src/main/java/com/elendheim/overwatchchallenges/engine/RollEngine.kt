@@ -28,8 +28,11 @@ class RollEngine(seed: Long? = null) {
 
     private val random: Random = if (seed != null) Random(seed) else Random.Default
 
-    fun rollHero(roleFilter: Role?): Hero {
-        val pool = roleFilter?.let(Roster::byRole) ?: Roster.heroes
+    fun rollHero(roleFilter: Role?, disabled: Set<String> = emptySet()): Hero {
+        val base = roleFilter?.let(Roster::byRole) ?: Roster.heroes
+        // if someone bans an entire role's worth of heroes, roll from the full
+        // list rather than rolling nothing
+        val pool = base.filterNot { it.name in disabled }.ifEmpty { base }
         return pool.random(random)
     }
 
