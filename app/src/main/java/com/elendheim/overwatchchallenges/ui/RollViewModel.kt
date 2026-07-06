@@ -127,5 +127,6 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
 
     private companion object {
         const val KEY_DISABLED_HEROES = "disabled_heroes"
+        const val KEY_MYSTERY = "mystery_enabled"
     }
 }
