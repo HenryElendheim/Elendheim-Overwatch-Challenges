@@ -5,17 +5,19 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- a d6 showing three, tilted nowhere, kept inside the adaptive safe zone -->
+    <!-- the Elendheim C: lighter disc, white ring open to the right,
+         orange segment across the top -->
     <path
-        android:fillColor="#FF9E2C"
-        android:pathData="M38,30 h32 a8,8 0 0 1 8,8 v32 a8,8 0 0 1 -8,8 h-32 a8,8 0 0 1 -8,-8 v-32 a8,8 0 0 1 8,-8 z" />
+        android:fillColor="#372511"
+        android:pathData="M54,24 a30,30 0 1 0 0.02,0 z" />
     <path
-        android:fillColor="#15110B"
-        android:pathData="M42,37.5 a4.5,4.5 0 1 0 0.02,0 z" />
+        android:strokeColor="#FAF7F2"
+        android:strokeWidth="10"
+        android:fillColor="#00000000"
+        android:pathData="M37.6,42.5 A20,20 0 1 0 72.1,62.5" />
     <path
-        android:fillColor="#15110B"
-        android:pathData="M54,49.5 a4.5,4.5 0 1 0 0.02,0 z" />
-    <path
-        android:fillColor="#15110B"
-        android:pathData="M66,61.5 a4.5,4.5 0 1 0 0.02,0 z" />
+        android:strokeColor="#FBBB79"
+        android:strokeWidth="10"
+        android:fillColor="#00000000"
+        android:pathData="M72.1,45.5 A20,20 0 0 0 37.6,42.5" />
 </vector>
