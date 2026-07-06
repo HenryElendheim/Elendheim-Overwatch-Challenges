@@ -17,11 +17,14 @@ queue.
 ## The modes
 
 - **Mutate** keeps the hero and rerolls just the challenge. Hate the
-  constraint, not the pick? Mutate it.
+  constraint, not the pick? Mutate it. A counter tracks how many times you
+  chickened out, and resets on the next roll.
 - **Escalate** stacks a new constraint on top of what you already have. Keep
-  going until you break.
+  going until you break. Swipe an added constraint away if it turns out
+  unplayable; the first one is locked in.
 - **Stakes** rolls a punishment alongside the challenge. Fail the challenge
-  and the punishment applies to your next game.
+  and the punishment applies to your next game. Toggling stakes off and on
+  brings back the same punishment; it only changes when you reroll.
 - **Squad sync** gives everyone who enters the same word the same roll
   sequence, so the whole group shares one chaos theme. Filters have to match
   and everyone taps in the same order.
