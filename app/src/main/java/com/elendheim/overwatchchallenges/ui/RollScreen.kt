@@ -93,6 +93,9 @@ fun RollScreen(viewModel: RollViewModel = viewModel()) {
     val state = viewModel.state
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var landedRollId by rememberSaveable { mutableIntStateOf(0) }
+    // what the result screen is allowed to show; only advances once the reel
+    // has landed, so a fresh roll never leaks through the outgoing screen
+    var landedResult by remember { mutableStateOf(state.result) }
 
     BackHandler(enabled = showSettings) { showSettings = false }
 
@@ -107,9 +110,14 @@ fun RollScreen(viewModel: RollViewModel = viewModel()) {
         AnimatedContent(
             targetState = screenKey,
             transitionSpec = {
-                (fadeIn(tween(420, delayMillis = 90)) +
-                    scaleIn(tween(420, delayMillis = 90), initialScale = 0.94f))
-                    .togetherWith(fadeOut(tween(150)))
+                if (targetState == "spin") {
+                    // cut to the reel fast, no lingering on the old screen
+                    fadeIn(tween(180)).togetherWith(fadeOut(tween(110)))
+                } else {
+                    (fadeIn(tween(420, delayMillis = 90)) +
+                        scaleIn(tween(420, delayMillis = 90), initialScale = 0.94f))
+                        .togetherWith(fadeOut(tween(150)))
+                }
             },
             label = "screen",
             modifier = Modifier
@@ -130,17 +138,21 @@ fun RollScreen(viewModel: RollViewModel = viewModel()) {
 
                 "spin" -> SpinScreen(
                     state = state,
-                    onLanded = { landedRollId = state.rollId },
+                    onLanded = {
+                        landedResult = state.result
+                        landedRollId = state.rollId
+                    },
                 )
 
-                else -> state.result?.let { result ->
-                    ResultScreen(
-                        state = state,
-                        result = result,
-                        viewModel = viewModel,
-                        onSettings = { showSettings = true },
-                    )
-                }
+                else -> (if (state.rollId > landedRollId) landedResult else state.result)
+                    ?.let { result ->
+                        ResultScreen(
+                            state = state,
+                            result = result,
+                            viewModel = viewModel,
+                            onSettings = { showSettings = true },
+                        )
+                    }
             }
         }
     }
@@ -202,6 +214,12 @@ private fun SpinScreen(state: RollUiState, onLanded: () -> Unit) {
         val pool = base.filterNot { it.name in state.disabledHeroes }.ifEmpty { base }
         buildReel(pool, result.hero, state.rollId)
     }
+    // now and then the runout drags on for suspense
+    val spinMillis = remember(state.rollId) {
+        val random = Random(state.rollId * 31L + 5)
+        val suspense = if (random.nextInt(3) == 0) 1100 + random.nextInt(1100) else 0
+        (1600 + reel.size * 24 + suspense).coerceAtMost(4800)
+    }
     // the target sits two entries before the end so the overshoot has
     // something to scroll past
     val targetIndex = reel.size - 3
@@ -212,7 +230,7 @@ private fun SpinScreen(state: RollUiState, onLanded: () -> Unit) {
         offset.animateTo(
             targetValue = targetIndex * itemPx,
             animationSpec = tween(
-                durationMillis = (1600 + reel.size * 24).coerceAtMost(3200),
+                durationMillis = spinMillis,
                 easing = CubicBezierEasing(0.16f, 0.84f, 0.28f, 1.04f),
             ),
         )
@@ -571,23 +589,44 @@ private fun SettingsScreen(
 
             HorizontalDivider(Modifier.padding(vertical = 18.dp))
 
-            Text("Hero pool", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Hero pool",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(
+                    checked = Roster.heroes.none { it.name in state.disabledHeroes },
+                    onCheckedChange = { on ->
+                        viewModel.setGroupEnabled(Roster.heroes.map { it.name }, on)
+                    },
+                )
+            }
             Text(
                 text = "Tap a hero to ban them from the roller, tap again to bring them back. " +
-                    "If you ban everything the roller can land on, it ignores the bans " +
-                    "rather than rolling nothing.",
+                    "The switches flip a whole role, or everything, at once. If you ban " +
+                    "everything the roller can land on, it ignores the bans rather than " +
+                    "rolling nothing.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Ash,
             )
 
             Role.entries.forEach { role ->
                 Spacer(Modifier.height(14.dp))
-                Text(
-                    text = role.label.uppercase(),
-                    style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp),
-                    color = role.tint,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = role.label.uppercase(),
+                        style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp),
+                        color = role.tint,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Switch(
+                        checked = Roster.byRole(role).none { it.name in state.disabledHeroes },
+                        onCheckedChange = { on ->
+                            viewModel.setGroupEnabled(Roster.byRole(role).map { it.name }, on)
+                        },
+                    )
+                }
                 Spacer(Modifier.height(6.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),

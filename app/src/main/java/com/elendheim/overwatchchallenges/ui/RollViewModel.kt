@@ -57,6 +57,17 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleHero(name: String) {
         val disabled = state.disabledHeroes.toMutableSet()
         if (!disabled.add(name)) disabled.remove(name)
+        saveDisabled(disabled)
+    }
+
+    /** The all-or-nothing switches in settings: whole pool or a whole role at once. */
+    fun setGroupEnabled(names: List<String>, enabled: Boolean) {
+        val disabled = state.disabledHeroes.toMutableSet()
+        if (enabled) disabled.removeAll(names.toSet()) else disabled.addAll(names)
+        saveDisabled(disabled)
+    }
+
+    private fun saveDisabled(disabled: Set<String>) {
         prefs.edit().putStringSet(KEY_DISABLED_HEROES, disabled).apply()
         state = state.copy(disabledHeroes = disabled)
     }
