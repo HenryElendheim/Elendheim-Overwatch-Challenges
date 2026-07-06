@@ -5,12 +5,19 @@ on:
     branches: [testing, main]
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, like v1.0. Leave empty to just build."
+        required: false
+        default: ""
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.version || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
 
@@ -25,14 +32,16 @@ jobs:
         run: ./gradlew assembleDebug
 
       - name: Prepare release APK
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: cp app/build/outputs/apk/debug/app-debug.apk "ElendheimOverwatchChallenges-${GITHUB_REF_NAME}.apk"
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''
+        run: cp app/build/outputs/apk/debug/app-debug.apk "ElendheimOverwatchChallenges-${RELEASE_TAG}.apk"
 
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''
         uses: softprops/action-gh-release@v2
         with:
-          name: "Elendheim Overwatch Challenges ${{ github.ref_name }}"
+          name: "Elendheim Overwatch Challenges ${{ env.RELEASE_TAG }}"
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
           files: ElendheimOverwatchChallenges-*.apk
           body: |
             Elendheim Overwatch Challenges is a challenge roller for Overwatch. It rolls you a hero and a constraint to play under, lets you mutate or escalate the roll, and syncs rolls across your group with a shared squad word.
