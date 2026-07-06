@@ -15,6 +15,8 @@ data class RollUiState(
     val stakes: Boolean = false,
     val squadSeed: String? = null,
     val result: RollResult? = null,
+    val rollId: Int = 0,
+    val mutations: Int = 0,
 )
 
 class RollViewModel : ViewModel() {
@@ -32,6 +34,7 @@ class RollViewModel : ViewModel() {
         state = state.copy(poolMode = mode)
     }
 
+    /** Only shows or hides the punishment. The rolled one sticks until the next roll. */
     fun toggleStakes() {
         state = state.copy(stakes = !state.stakes)
     }
@@ -40,14 +43,20 @@ class RollViewModel : ViewModel() {
     fun setSquadSeed(seed: String?) {
         val clean = seed?.trim()?.takeUnless { it.isEmpty() }
         engine = if (clean != null) RollEngine(RollEngine.seedFrom(clean)) else RollEngine()
-        state = state.copy(squadSeed = clean, result = null)
+        state = state.copy(squadSeed = clean, result = null, mutations = 0)
     }
 
     fun roll() {
         val hero = engine.rollHero(state.roleFilter)
         val challenge = engine.rollChallenge(hero.role, state.poolMode)
-        val punishment = if (state.stakes) engine.rollPunishment() else null
-        state = state.copy(result = RollResult(hero, listOf(challenge), punishment))
+        // always roll the punishment so the stakes toggle can show and hide the
+        // same one, and so squad seeds stay in step whatever anyone toggles
+        val punishment = engine.rollPunishment()
+        state = state.copy(
+            result = RollResult(hero, listOf(challenge), punishment),
+            rollId = state.rollId + 1,
+            mutations = 0,
+        )
     }
 
     /** Keep the hero, reroll the newest challenge on the stack. */
@@ -55,7 +64,10 @@ class RollViewModel : ViewModel() {
         val current = state.result ?: return
         val fresh = engine.rollChallenge(current.hero.role, state.poolMode, exclude = current.challenges)
         val challenges = current.challenges.dropLast(1) + fresh
-        state = state.copy(result = current.copy(challenges = challenges))
+        state = state.copy(
+            result = current.copy(challenges = challenges),
+            mutations = state.mutations + 1,
+        )
     }
 
     /** Stack one more constraint on top of whatever is already rolling. */
@@ -63,5 +75,13 @@ class RollViewModel : ViewModel() {
         val current = state.result ?: return
         val extra = engine.rollChallenge(current.hero.role, state.poolMode, exclude = current.challenges)
         state = state.copy(result = current.copy(challenges = current.challenges + extra))
+    }
+
+    /** Swipe-away for escalations. The first constraint is locked in. */
+    fun removeChallenge(index: Int) {
+        val current = state.result ?: return
+        if (index <= 0 || index >= current.challenges.size) return
+        val challenges = current.challenges.filterIndexed { i, _ -> i != index }
+        state = state.copy(result = current.copy(challenges = challenges))
     }
 }

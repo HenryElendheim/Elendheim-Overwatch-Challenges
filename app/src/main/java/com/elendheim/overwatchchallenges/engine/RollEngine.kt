@@ -10,13 +10,14 @@ import com.elendheim.overwatchchallenges.data.Roster
 import kotlin.random.Random
 
 /**
- * One roll: a hero, one or more stacked challenges, and (with stakes on)
- * a punishment for failing.
+ * One roll: a hero, one or more stacked challenges, and a punishment for
+ * failing. The punishment always gets rolled; the stakes toggle just decides
+ * whether it's shown.
  */
 data class RollResult(
     val hero: Hero,
     val challenges: List<Challenge>,
-    val punishment: String? = null,
+    val punishment: String,
 )
 
 /**
