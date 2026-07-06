@@ -48,6 +48,14 @@ class RollEngine(seed: Long? = null) {
 
     fun rollPunishment(): String = Punishments.all.random(random)
 
+    /** One roll in fifty comes up as a ??? wildcard. */
+    fun rollMysteryChance(): Boolean = random.nextInt(50) == 0
+
+    fun rollMysteryChallenge(mode: PoolMode): Challenge? {
+        val pool = ChallengePool.mysteries(mode)
+        return if (pool.isEmpty()) null else pool.random(random)
+    }
+
     companion object {
         /** Stable hash so every device turns the same squad word into the same seed. */
         fun seedFrom(phrase: String): Long {

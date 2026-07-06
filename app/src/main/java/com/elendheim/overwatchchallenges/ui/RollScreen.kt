@@ -75,6 +75,7 @@ import com.elendheim.overwatchchallenges.data.Roster
 import com.elendheim.overwatchchallenges.engine.RollResult
 import com.elendheim.overwatchchallenges.ui.theme.Ash
 import com.elendheim.overwatchchallenges.ui.theme.DamageRed
+import com.elendheim.overwatchchallenges.ui.theme.Ember
 import com.elendheim.overwatchchallenges.ui.theme.SupportGreen
 import com.elendheim.overwatchchallenges.ui.theme.TankBlue
 import kotlin.math.abs
@@ -238,13 +239,17 @@ private fun SpinScreen(state: RollUiState, onLanded: () -> Unit) {
         onLanded()
     }
 
+    // a wildcard roll never shows the hero; the reel lands on ??? instead
+    val mystery = result.challenges.any { it.overridesHero }
+
     Box(Modifier.fillMaxSize()) {
         reel.forEachIndexed { index, hero ->
+            val isTarget = index == targetIndex
             Text(
-                text = hero.name,
+                text = if (isTarget && mystery) "???" else hero.name,
                 style = MaterialTheme.typography.displaySmall,
                 fontWeight = FontWeight.Bold,
-                color = hero.role.tint,
+                color = if (isTarget && mystery) Ember else hero.role.tint,
                 modifier = Modifier
                     .align(Alignment.Center)
                     .graphicsLayer {
@@ -415,20 +420,21 @@ private fun ResultCard(
                 .padding(20.dp)
                 .animateContentSize()
         ) {
+            val mystery = result.challenges.any { it.overridesHero }
             Text(
-                text = result.hero.role.label.uppercase(),
+                text = if (mystery) "WILDCARD" else result.hero.role.label.uppercase(),
                 style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp),
-                color = result.hero.role.tint,
+                color = if (mystery) Ember else result.hero.role.tint,
             )
             Text(
-                text = result.hero.name,
+                text = if (mystery) "???" else result.hero.name,
                 style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.Bold,
             )
-            if (result.challenges.any { it.overridesHero }) {
+            if (mystery) {
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "One of these constraints picks your hero for you. The roll above is just a suggestion.",
+                    text = "No hero this time. The constraint below decides who you play.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Ash,
                 )
@@ -585,6 +591,27 @@ private fun SettingsScreen(
                 style = MaterialTheme.typography.labelMedium,
                 color = Ash,
                 modifier = Modifier.padding(top = 6.dp),
+            )
+
+            HorizontalDivider(Modifier.padding(vertical = 18.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "??? rolls",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(
+                    checked = state.mysteryEnabled,
+                    onCheckedChange = { viewModel.toggleMystery() },
+                )
+            }
+            Text(
+                text = "About one roll in fifty comes up as a wildcard: no hero, just a " +
+                    "constraint that decides who you play. Turn it off if you want every " +
+                    "roll to land on a hero.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Ash,
             )
 
             HorizontalDivider(Modifier.padding(vertical = 18.dp))

@@ -31,6 +31,9 @@ queue.
 - **Hero bans** live in settings too: the full roster is listed by role, and
   tapping a hero removes them from the roller until you tap them back in.
   Bans stick between launches.
+- **??? rolls**: about one roll in fifty skips the hero entirely and hands
+  you a wildcard constraint that decides who you play. There's a switch in
+  settings if you'd rather every roll land on a hero.
 
 ## Building it
 

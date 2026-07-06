@@ -20,6 +20,7 @@ data class RollUiState(
     val rollId: Int = 0,
     val mutations: Int = 0,
     val disabledHeroes: Set<String> = emptySet(),
+    val mysteryEnabled: Boolean = true,
 )
 
 class RollViewModel(application: Application) : AndroidViewModel(application) {
@@ -27,7 +28,10 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("elendheim", Context.MODE_PRIVATE)
 
     var state by mutableStateOf(
-        RollUiState(disabledHeroes = prefs.getStringSet(KEY_DISABLED_HEROES, null).orEmpty().toSet())
+        RollUiState(
+            disabledHeroes = prefs.getStringSet(KEY_DISABLED_HEROES, null).orEmpty().toSet(),
+            mysteryEnabled = prefs.getBoolean(KEY_MYSTERY, true),
+        )
     )
         private set
 
@@ -72,9 +76,19 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         state = state.copy(disabledHeroes = disabled)
     }
 
+    fun toggleMystery() {
+        val enabled = !state.mysteryEnabled
+        prefs.edit().putBoolean(KEY_MYSTERY, enabled).apply()
+        state = state.copy(mysteryEnabled = enabled)
+    }
+
     fun roll() {
         val hero = engine.rollHero(state.roleFilter, state.disabledHeroes)
-        val challenge = engine.rollChallenge(hero.role, state.poolMode)
+        // the rare ??? wildcard: a constraint that decides your hero instead
+        // of the roll. the chance check always runs so squad seeds stay in step
+        val mystery = engine.rollMysteryChance() && state.mysteryEnabled
+        val challenge = (if (mystery) engine.rollMysteryChallenge(state.poolMode) else null)
+            ?: engine.rollChallenge(hero.role, state.poolMode)
         // always roll the punishment so the stakes toggle can show and hide the
         // same one, and so squad seeds stay in step whatever anyone toggles
         val punishment = engine.rollPunishment()

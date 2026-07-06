@@ -77,7 +77,8 @@ object ChallengePool {
 
     /**
      * Everything a given hero role is allowed to draw in the given mode,
-     * minus anything already on the stack.
+     * minus anything already on the stack. Hero-overriding constraints are
+     * excluded here; they only show up through the rare ??? wildcard path.
      */
     fun matching(
         role: Role,
@@ -85,11 +86,16 @@ object ChallengePool {
         exclude: Collection<Challenge> = emptyList(),
     ): List<Challenge> = all.filter { challenge ->
         val roleOk = challenge.roles == null || role in challenge.roles
-        val modeOk = when (mode) {
-            PoolMode.MIXED -> true
-            PoolMode.WARMUP -> challenge.intensity == Intensity.WARMUP
-            PoolMode.CHAOS -> challenge.intensity == Intensity.CHAOS
-        }
-        roleOk && modeOk && challenge !in exclude
+        !challenge.overridesHero && roleOk && matchesMode(challenge, mode) && challenge !in exclude
+    }
+
+    /** The wildcard pool: constraints that decide your hero for you. */
+    fun mysteries(mode: PoolMode): List<Challenge> =
+        all.filter { it.overridesHero && matchesMode(it, mode) }
+
+    private fun matchesMode(challenge: Challenge, mode: PoolMode): Boolean = when (mode) {
+        PoolMode.MIXED -> true
+        PoolMode.WARMUP -> challenge.intensity == Intensity.WARMUP
+        PoolMode.CHAOS -> challenge.intensity == Intensity.CHAOS
     }
 }
