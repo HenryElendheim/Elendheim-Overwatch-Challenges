@@ -44,9 +44,10 @@ class RollEngine(seed: Long? = null) {
         role: Role,
         mode: PoolMode,
         exclude: List<Challenge> = emptyList(),
+        extras: List<Challenge> = emptyList(),
     ): Challenge {
-        val pool = ChallengePool.matching(role, mode, exclude)
-            .ifEmpty { ChallengePool.matching(role, mode) }
+        val pool = ChallengePool.matching(role, mode, exclude, extras)
+            .ifEmpty { ChallengePool.matching(role, mode, extras = extras) }
         return pool.random(random)
     }
 

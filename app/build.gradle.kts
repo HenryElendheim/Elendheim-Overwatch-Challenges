@@ -12,8 +12,22 @@ android {
         applicationId = "com.elendheim.overwatchchallenges"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "2.2"
+        versionCode = 7
+        versionName = "3.0"
+    }
+
+    // CI provides the release key through repo secrets; without them, local
+    // and CI builds just fall back to the debug APK
+    signingConfigs {
+        val keystorePath = System.getenv("RELEASE_KEYSTORE")
+        if (keystorePath != null) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
@@ -24,6 +38,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 

@@ -6,10 +6,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
+import com.elendheim.overwatchchallenges.data.Category
+import com.elendheim.overwatchchallenges.data.Challenge
+import com.elendheim.overwatchchallenges.data.Intensity
 import com.elendheim.overwatchchallenges.data.PoolMode
 import com.elendheim.overwatchchallenges.data.Role
 import com.elendheim.overwatchchallenges.engine.RollEngine
 import com.elendheim.overwatchchallenges.engine.RollResult
+import org.json.JSONArray
+import org.json.JSONObject
 
 data class RollUiState(
     val roleFilter: Role? = null,
@@ -22,6 +27,8 @@ data class RollUiState(
     val disabledHeroes: Set<String> = emptySet(),
     val mysteryEnabled: Boolean = true,
     val noChallengeMode: Boolean = false,
+    val customChallenges: List<Challenge> = emptyList(),
+    val deaths: Int = 0,
 )
 
 class RollViewModel(application: Application) : AndroidViewModel(application) {
@@ -33,6 +40,7 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
             disabledHeroes = prefs.getStringSet(KEY_DISABLED_HEROES, null).orEmpty().toSet(),
             mysteryEnabled = prefs.getBoolean(KEY_MYSTERY, true),
             noChallengeMode = prefs.getBoolean(KEY_NO_CHALLENGE, false),
+            customChallenges = loadCustoms(prefs.getString(KEY_CUSTOM_CHALLENGES, null)),
         )
     )
         private set
@@ -90,6 +98,31 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         state = state.copy(noChallengeMode = enabled)
     }
 
+    /** House rules: your own constraints, fed into the same pools as everything else. */
+    fun addCustomChallenge(text: String, intensity: Intensity) {
+        val clean = text.trim()
+        if (clean.isEmpty()) return
+        if (state.customChallenges.any { it.text.equals(clean, ignoreCase = true) }) return
+        saveCustoms(state.customChallenges + Challenge(clean, Category.HOUSE, intensity))
+    }
+
+    fun removeCustomChallenge(challenge: Challenge) {
+        saveCustoms(state.customChallenges - challenge)
+    }
+
+    private fun saveCustoms(customs: List<Challenge>) {
+        val json = JSONArray()
+        customs.forEach { custom ->
+            json.put(
+                JSONObject()
+                    .put("text", custom.text)
+                    .put("intensity", custom.intensity.name)
+            )
+        }
+        prefs.edit().putString(KEY_CUSTOM_CHALLENGES, json.toString()).apply()
+        state = state.copy(customChallenges = customs)
+    }
+
     fun roll() {
         val hero = engine.rollHero(state.roleFilter, state.disabledHeroes)
         // the rare ??? wildcard: a constraint that decides your hero instead
@@ -97,7 +130,7 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         // no-challenge mode skips wildcards; a hidden hero makes no sense there
         val mystery = engine.rollMysteryChance() && state.mysteryEnabled && !state.noChallengeMode
         val challenge = (if (mystery) engine.rollMysteryChallenge(state.poolMode) else null)
-            ?: engine.rollChallenge(hero.role, state.poolMode)
+            ?: engine.rollChallenge(hero.role, state.poolMode, extras = state.customChallenges)
         // always roll the punishment so the stakes toggle can show and hide the
         // same one, and so squad seeds stay in step whatever anyone toggles
         val punishment = engine.rollPunishment()
@@ -110,6 +143,7 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
             result = result,
             rollId = state.rollId + 1,
             mutations = 0,
+            deaths = 0,
         )
     }
 
@@ -117,7 +151,12 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
     fun mutate() {
         val current = state.result ?: return
         if (current.challenges.isEmpty()) return
-        val fresh = engine.rollChallenge(current.hero.role, state.poolMode, exclude = current.challenges)
+        val fresh = engine.rollChallenge(
+            current.hero.role,
+            state.poolMode,
+            exclude = current.challenges,
+            extras = state.customChallenges,
+        )
         val challenges = current.challenges.dropLast(1) + fresh
         state = state.copy(
             result = current.copy(challenges = challenges),
@@ -140,8 +179,20 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
             )
             return
         }
-        val extra = engine.rollChallenge(current.hero.role, state.poolMode, exclude = current.challenges)
+        val extra = engine.rollChallenge(
+            current.hero.role,
+            state.poolMode,
+            exclude = current.challenges,
+            extras = state.customChallenges,
+        )
         state = state.copy(result = current.copy(challenges = current.challenges + extra))
+    }
+
+    /** Death mid-match means the stack grows. Tap it, respawn, suffer. */
+    fun died() {
+        if (state.result == null) return
+        state = state.copy(deaths = state.deaths + 1)
+        escalate()
     }
 
     /** Swipe-away for escalations. The first constraint is locked in. */
@@ -156,5 +207,25 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         const val KEY_DISABLED_HEROES = "disabled_heroes"
         const val KEY_MYSTERY = "mystery_enabled"
         const val KEY_NO_CHALLENGE = "no_challenge_mode"
+        const val KEY_CUSTOM_CHALLENGES = "custom_challenges"
+
+        fun loadCustoms(raw: String?): List<Challenge> {
+            if (raw == null) return emptyList()
+            return runCatching {
+                val json = JSONArray(raw)
+                (0 until json.length()).map { i ->
+                    val entry = json.getJSONObject(i)
+                    Challenge(
+                        text = entry.getString("text"),
+                        category = Category.HOUSE,
+                        intensity = if (entry.optString("intensity") == Intensity.CHAOS.name) {
+                            Intensity.CHAOS
+                        } else {
+                            Intensity.WARMUP
+                        },
+                    )
+                }
+            }.getOrDefault(emptyList())
+        }
     }
 }

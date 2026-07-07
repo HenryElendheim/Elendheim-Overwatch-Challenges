@@ -18,6 +18,7 @@ jobs:
       contents: write
     env:
       RELEASE_TAG: ${{ inputs.version || github.ref_name }}
+      HAS_KEYSTORE: ${{ secrets.RELEASE_KEYSTORE != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -28,12 +29,29 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Build debug APK
-        run: ./gradlew assembleDebug
+      - name: Restore signing key
+        if: env.HAS_KEYSTORE == 'true'
+        run: printf '%s' "${{ secrets.RELEASE_KEYSTORE }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Build APKs
+        run: |
+          if [ "$HAS_KEYSTORE" = "true" ]; then
+            export RELEASE_KEYSTORE="$RUNNER_TEMP/release.jks"
+          fi
+          ./gradlew assembleDebug assembleRelease
+        env:
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
 
       - name: Prepare release APK
         if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''
-        run: cp app/build/outputs/apk/debug/app-debug.apk "ElendheimOverwatchChallenges-${RELEASE_TAG}.apk"
+        run: |
+          if [ "$HAS_KEYSTORE" = "true" ]; then
+            cp app/build/outputs/apk/release/app-release.apk "ElendheimOverwatchChallenges-${RELEASE_TAG}.apk"
+          else
+            cp app/build/outputs/apk/debug/app-debug.apk "ElendheimOverwatchChallenges-${RELEASE_TAG}.apk"
+          fi
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''

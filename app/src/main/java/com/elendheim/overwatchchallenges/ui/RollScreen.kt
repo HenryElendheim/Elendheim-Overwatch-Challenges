@@ -33,6 +33,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -69,6 +70,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.elendheim.overwatchchallenges.data.Challenge
 import com.elendheim.overwatchchallenges.data.Hero
+import com.elendheim.overwatchchallenges.data.Intensity
 import com.elendheim.overwatchchallenges.data.PoolMode
 import com.elendheim.overwatchchallenges.data.Role
 import com.elendheim.overwatchchallenges.data.Roster
@@ -304,6 +306,17 @@ private fun ResultScreen(
         )
 
         Spacer(Modifier.height(14.dp))
+        OutlinedButton(
+            onClick = viewModel::died,
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = MaterialTheme.colorScheme.error,
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("I died")
+        }
+
+        Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(
                 onClick = viewModel::mutate,
@@ -329,7 +342,7 @@ private fun ResultScreen(
 
         Spacer(Modifier.height(6.dp))
         Text(
-            text = "Mutations this roll: ${state.mutations}",
+            text = "Mutations: ${state.mutations} · Deaths: ${state.deaths}",
             style = MaterialTheme.typography.labelMedium,
             color = Ash,
             modifier = Modifier.align(Alignment.CenterHorizontally),
@@ -646,6 +659,59 @@ private fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = Ash,
             )
+
+            HorizontalDivider(Modifier.padding(vertical = 18.dp))
+
+            Text("House rules", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Your own constraints. They join the pool alongside the built-in " +
+                    "ones, so rolls, mutate and escalate all pick them up.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Ash,
+            )
+            state.customChallenges.forEach { custom ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 6.dp),
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(custom.text, style = MaterialTheme.typography.bodyMedium)
+                        Text(custom.intensity.label, style = MaterialTheme.typography.labelSmall, color = Ash)
+                    }
+                    TextButton(onClick = { viewModel.removeCustomChallenge(custom) }) {
+                        Text("Remove")
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            var newRule by remember { mutableStateOf("") }
+            var newIntensity by remember { mutableStateOf(Intensity.CHAOS) }
+            OutlinedTextField(
+                value = newRule,
+                onValueChange = { newRule = it },
+                label = { Text("New constraint") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                Intensity.entries.forEachIndexed { index, intensity ->
+                    SegmentedButton(
+                        selected = newIntensity == intensity,
+                        onClick = { newIntensity = intensity },
+                        shape = SegmentedButtonDefaults.itemShape(index = index, count = Intensity.entries.size),
+                    ) { Text(intensity.label) }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    viewModel.addCustomChallenge(newRule, newIntensity)
+                    newRule = ""
+                },
+                enabled = newRule.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Add house rule") }
 
             HorizontalDivider(Modifier.padding(vertical = 18.dp))
 

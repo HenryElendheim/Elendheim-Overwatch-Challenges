@@ -84,7 +84,8 @@ object ChallengePool {
         role: Role,
         mode: PoolMode,
         exclude: Collection<Challenge> = emptyList(),
-    ): List<Challenge> = all.filter { challenge ->
+        extras: List<Challenge> = emptyList(),
+    ): List<Challenge> = (all + extras).filter { challenge ->
         val roleOk = challenge.roles == null || role in challenge.roles
         !challenge.overridesHero && roleOk && matchesMode(challenge, mode) && challenge !in exclude
     }
