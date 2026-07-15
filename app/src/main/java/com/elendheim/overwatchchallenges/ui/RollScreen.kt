@@ -7,9 +7,9 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.MutableTransitionState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -49,6 +49,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Switch
@@ -59,6 +60,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,19 +73,15 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.elendheim.overwatchchallenges.data.Challenge
 import com.elendheim.overwatchchallenges.data.Hero
-import com.elendheim.overwatchchallenges.data.Intensity
 import com.elendheim.overwatchchallenges.data.PoolMode
 import com.elendheim.overwatchchallenges.data.Role
 import com.elendheim.overwatchchallenges.data.Roster
+import com.elendheim.overwatchchallenges.data.RulePack
 import com.elendheim.overwatchchallenges.engine.RollResult
-import com.elendheim.overwatchchallenges.ui.theme.Ash
-import com.elendheim.overwatchchallenges.ui.theme.Cloud
 import com.elendheim.overwatchchallenges.ui.theme.DamageRed
 import com.elendheim.overwatchchallenges.ui.theme.Ember
-import com.elendheim.overwatchchallenges.ui.theme.Night
 import com.elendheim.overwatchchallenges.ui.theme.SupportGreen
 import com.elendheim.overwatchchallenges.ui.theme.TankBlue
 import kotlin.math.abs
@@ -97,10 +95,14 @@ private val Role.tint
         Role.SUPPORT -> SupportGreen
     }
 
+private val muted
+    @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
+
 @Composable
-fun RollScreen(viewModel: RollViewModel = viewModel()) {
+fun RollScreen(viewModel: RollViewModel) {
     val state = viewModel.state
-    var showSettings by rememberSaveable { mutableStateOf(false) }
+    // null = settings closed, otherwise which settings page is open
+    var settingsPage by rememberSaveable { mutableStateOf<String?>(null) }
     var landedRollId by rememberSaveable { mutableIntStateOf(0) }
     // saveable so the intro plays once per launch, not again on rotation
     var introDone by rememberSaveable { mutableStateOf(false) }
@@ -108,10 +110,12 @@ fun RollScreen(viewModel: RollViewModel = viewModel()) {
     // has landed, so a fresh roll never leaks through the outgoing screen
     var landedResult by remember { mutableStateOf(state.result) }
 
-    BackHandler(enabled = showSettings) { showSettings = false }
+    BackHandler(enabled = settingsPage != null) {
+        settingsPage = if (settingsPage == "root") null else "root"
+    }
 
     val screenKey = when {
-        showSettings -> "settings"
+        settingsPage != null -> "settings:$settingsPage"
         state.result == null -> "start"
         state.rollId > landedRollId -> "spin"
         else -> "result"
@@ -119,78 +123,91 @@ fun RollScreen(viewModel: RollViewModel = viewModel()) {
 
     Box(Modifier.fillMaxSize()) {
         Scaffold { innerPadding ->
-        AnimatedContent(
-            targetState = screenKey,
-            transitionSpec = {
-                if (targetState == "spin") {
-                    // cut to the reel fast, no lingering on the old screen
-                    fadeIn(tween(180)).togetherWith(fadeOut(tween(110)))
-                } else {
-                    (fadeIn(tween(420, delayMillis = 90)) +
-                        scaleIn(tween(420, delayMillis = 90), initialScale = 0.94f))
-                        .togetherWith(fadeOut(tween(150)))
-                }
-            },
-            label = "screen",
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-        ) { screen ->
-            when (screen) {
-                "settings" -> SettingsScreen(
-                    state = state,
-                    viewModel = viewModel,
-                    onBack = { showSettings = false },
-                )
-
-                "start" -> StartScreen(
-                    onRoll = viewModel::roll,
-                    onSettings = { showSettings = true },
-                )
-
-                "spin" -> SpinScreen(
-                    state = state,
-                    onLanded = {
-                        landedResult = state.result
-                        landedRollId = state.rollId
-                    },
-                )
-
-                else -> (if (state.rollId > landedRollId) landedResult else state.result)
-                    ?.let { result ->
-                        ResultScreen(
-                            state = state,
-                            result = result,
-                            viewModel = viewModel,
-                            onSettings = { showSettings = true },
-                        )
+            AnimatedContent(
+                targetState = screenKey,
+                transitionSpec = {
+                    if (targetState == "spin") {
+                        // cut to the reel fast, no lingering on the old screen
+                        fadeIn(tween(180)).togetherWith(fadeOut(tween(110)))
+                    } else {
+                        (fadeIn(tween(420, delayMillis = 90)) +
+                            scaleIn(tween(420, delayMillis = 90), initialScale = 0.94f))
+                            .togetherWith(fadeOut(tween(150)))
                     }
+                },
+                label = "screen",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+            ) { screen ->
+                when (screen) {
+                    "settings:root" -> SettingsRoot(
+                        state = state,
+                        onOpen = { settingsPage = it },
+                        onDone = { settingsPage = null },
+                    )
+
+                    "settings:squad" -> SquadSettings(state, viewModel) { settingsPage = "root" }
+                    "settings:challenges" -> ChallengeSettings(state, viewModel) { settingsPage = "root" }
+                    "settings:heroes" -> HeroPoolSettings(state, viewModel) { settingsPage = "root" }
+                    "settings:access" -> AccessibilitySettings(state, viewModel) { settingsPage = "root" }
+
+                    "start" -> StartScreen(
+                        onRoll = viewModel::roll,
+                        onSettings = { settingsPage = "root" },
+                    )
+
+                    "spin" -> SpinScreen(
+                        state = state,
+                        onLanded = {
+                            landedResult = state.result
+                            landedRollId = state.rollId
+                        },
+                    )
+
+                    else -> (if (state.rollId > landedRollId) landedResult else state.result)
+                        ?.let { result ->
+                            ResultScreen(
+                                state = state,
+                                result = result,
+                                viewModel = viewModel,
+                                onSettings = { settingsPage = "root" },
+                            )
+                        }
+                }
             }
-        }
         }
 
         if (!introDone) {
-            IntroSplash(onDone = { introDone = true })
+            IntroSplash(
+                reduceMotion = state.reduceMotion,
+                onDone = { introDone = true },
+            )
         }
     }
 }
 
 /**
  * The maker's mark. Plays once per launch, well under two seconds, then gets
- * out of the way.
+ * out of the way. Reduce motion swaps the animation for a short static card.
  */
 @Composable
-private fun IntroSplash(onDone: () -> Unit) {
-    val title = remember { MutableTransitionState(false).apply { targetState = true } }
-    var subtitleVisible by remember { mutableStateOf(false) }
+private fun IntroSplash(reduceMotion: Boolean, onDone: () -> Unit) {
+    val title = remember { MutableTransitionState(reduceMotion).apply { targetState = true } }
+    var subtitleVisible by remember { mutableStateOf(reduceMotion) }
     var fading by remember { mutableStateOf(false) }
     val overlayAlpha by animateFloatAsState(
         targetValue = if (fading) 0f else 1f,
-        animationSpec = tween(280),
+        animationSpec = tween(if (reduceMotion) 1 else 280),
         label = "introFade",
     )
 
     LaunchedEffect(Unit) {
+        if (reduceMotion) {
+            delay(600)
+            onDone()
+            return@LaunchedEffect
+        }
         delay(320)
         subtitleVisible = true
         delay(800)
@@ -203,7 +220,7 @@ private fun IntroSplash(onDone: () -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .graphicsLayer { alpha = overlayAlpha }
-            .background(Night)
+            .background(MaterialTheme.colorScheme.background)
             // swallow taps so nothing underneath gets pressed mid-intro
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
@@ -232,7 +249,7 @@ private fun IntroSplash(onDone: () -> Unit) {
                 Text(
                     text = "Overwatch Challenges",
                     style = MaterialTheme.typography.titleMedium,
-                    color = Cloud,
+                    color = MaterialTheme.colorScheme.onBackground,
                 )
             }
         }
@@ -276,7 +293,7 @@ private fun StartScreen(onRoll: () -> Unit, onSettings: () -> Unit) {
             Text(
                 text = "Get a hero. Get a constraint. Survive it.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = Ash,
+                color = muted,
             )
         }
     }
@@ -295,11 +312,12 @@ private fun SpinScreen(state: RollUiState, onLanded: () -> Unit) {
         val pool = base.filterNot { it.name in state.disabledHeroes }.ifEmpty { base }
         buildReel(pool, result.hero, state.rollId)
     }
-    // now and then the runout drags on for suspense
+    // spin length is user-tuned; now and then the runout drags on for suspense
     val spinMillis = remember(state.rollId) {
         val random = Random(state.rollId * 31L + 5)
-        val suspense = if (random.nextInt(3) == 0) 1100 + random.nextInt(1100) else 0
-        (1600 + reel.size * 24 + suspense).coerceAtMost(4800)
+        val base = (state.spinSeconds * 1000).toInt()
+        val suspense = if (random.nextInt(3) == 0) base / 2 + random.nextInt(600) else 0
+        (base + suspense).coerceIn(600, 8000)
     }
     // the target sits two entries before the end so the overshoot has
     // something to scroll past
@@ -308,6 +326,12 @@ private fun SpinScreen(state: RollUiState, onLanded: () -> Unit) {
     val offset = remember(state.rollId) { Animatable(0f) }
 
     LaunchedEffect(state.rollId) {
+        if (state.reduceMotion) {
+            offset.snapTo(targetIndex * itemPx)
+            delay(200)
+            onLanded()
+            return@LaunchedEffect
+        }
         offset.animateTo(
             targetValue = targetIndex * itemPx,
             animationSpec = tween(
@@ -422,7 +446,7 @@ private fun ResultScreen(
         Text(
             text = "Mutations: ${state.mutations} · Deaths: ${state.deaths}",
             style = MaterialTheme.typography.labelMedium,
-            color = Ash,
+            color = muted,
             modifier = Modifier.align(Alignment.CenterHorizontally),
         )
         Spacer(Modifier.height(10.dp))
@@ -436,7 +460,7 @@ private fun Header(onSettings: () -> Unit) {
             Text(
                 text = "ELENDHEIM",
                 style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 3.sp),
-                color = Ash,
+                color = muted,
             )
             Text(
                 text = "Overwatch Challenges",
@@ -490,7 +514,7 @@ private fun StakesRow(enabled: Boolean, onToggle: () -> Unit) {
         Text(
             text = "Stakes: roll a punishment for failing",
             style = MaterialTheme.typography.bodyMedium,
-            color = Ash,
+            color = muted,
             modifier = Modifier.weight(1f),
         )
         Switch(checked = enabled, onCheckedChange = { onToggle() })
@@ -531,7 +555,7 @@ private fun ResultCard(
                 Text(
                     text = "No hero this time. The constraint below decides who you play.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Ash,
+                    color = muted,
                 )
             }
 
@@ -541,7 +565,7 @@ private fun ResultCard(
                     text = "No constraint this time. Escalate deals the one you were owed, " +
                         "and that one's locked in.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Ash,
+                    color = muted,
                 )
             }
             result.challenges.forEachIndexed { index, challenge ->
@@ -619,9 +643,10 @@ private fun ChallengeItem(
 private fun ChallengeBlock(challenge: Challenge) {
     Column(Modifier.fillMaxWidth()) {
         Text(
-            text = "${challenge.category.label} · ${challenge.intensity.label}",
+            text = "${challenge.packName ?: challenge.category.label} · " +
+                (challenge.customTag ?: challenge.intensity.label),
             style = MaterialTheme.typography.labelMedium,
-            color = Ash,
+            color = muted,
         )
         Spacer(Modifier.height(4.dp))
         Text(
@@ -631,41 +656,128 @@ private fun ChallengeBlock(challenge: Challenge) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+// settings
+
 @Composable
-private fun SettingsScreen(
-    state: RollUiState,
-    viewModel: RollViewModel,
-    onBack: () -> Unit,
-) {
-    var seedText by remember { mutableStateOf(state.squadSeed.orEmpty()) }
+private fun SettingsHeader(title: String, backLabel: String, onBack: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = onBack) { Text(backLabel) }
+    }
+}
+
+@Composable
+private fun SettingsRow(title: String, subtitle: String, onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 5.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(2.dp))
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = muted)
+            }
+            Text("›", style = MaterialTheme.typography.headlineSmall, color = muted)
+        }
+    }
+}
+
+@Composable
+private fun SwitchRow(title: String, description: String, checked: Boolean, onToggle: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.weight(1f),
+        )
+        Switch(checked = checked, onCheckedChange = { onToggle() })
+    }
+    Text(
+        text = description,
+        style = MaterialTheme.typography.bodySmall,
+        color = muted,
+    )
+}
+
+@Composable
+private fun SettingsRoot(state: RollUiState, onOpen: (String) -> Unit, onDone: () -> Unit) {
+    val activeHeroes = Roster.heroes.count { it.name !in state.disabledHeroes }
+    val packsOn = state.rulePacks.count { it.enabled }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "Settings",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = onBack) { Text("Done") }
-        }
-
+        SettingsHeader("Settings", "Done", onDone)
         Column(
-            modifier = Modifier
+            Modifier
                 .fillMaxWidth()
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
         ) {
             Spacer(Modifier.height(8.dp))
-            Text("Squad sync", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(4.dp))
+            SettingsRow(
+                title = "Squad sync",
+                subtitle = if (state.squadSeed == null) "Rolling solo" else "Synced on \"${state.squadSeed}\"",
+                onClick = { onOpen("squad") },
+            )
+            SettingsRow(
+                title = "Challenges",
+                subtitle = buildString {
+                    append(if (state.standardEnabled) "Standard pool on" else "Standard pool off")
+                    if (state.rulePacks.isNotEmpty()) {
+                        append(" · $packsOn of ${state.rulePacks.size} packs on")
+                    }
+                },
+                onClick = { onOpen("challenges") },
+            )
+            SettingsRow(
+                title = "Hero pool",
+                subtitle = if (state.showPoolCounts) {
+                    "$activeHeroes/${Roster.heroes.size} heroes active"
+                } else {
+                    "Bans and role switches"
+                },
+                onClick = { onOpen("heroes") },
+            )
+            SettingsRow(
+                title = "Accessibility",
+                subtitle = "Text size, contrast and motion",
+                onClick = { onOpen("access") },
+            )
+            Spacer(Modifier.height(20.dp))
+        }
+    }
+}
+
+@Composable
+private fun SquadSettings(state: RollUiState, viewModel: RollViewModel, onBack: () -> Unit) {
+    var seedText by remember { mutableStateOf(state.squadSeed.orEmpty()) }
+
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        SettingsHeader("Squad sync", "Back", onBack)
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Spacer(Modifier.height(8.dp))
             Text(
                 text = "Everyone who enters the same word gets the same rolls, as long as " +
-                    "filters and hero bans match and you tap in the same order. Setting a " +
-                    "word starts a fresh sequence.",
+                    "filters, hero bans and packs match and you tap in the same order. " +
+                    "Setting a word starts a fresh sequence.",
                 style = MaterialTheme.typography.bodySmall,
-                color = Ash,
+                color = muted,
             )
             Spacer(Modifier.height(10.dp))
             OutlinedTextField(
@@ -692,110 +804,179 @@ private fun SettingsScreen(
             Text(
                 text = if (state.squadSeed == null) "Rolling solo." else "Synced on \"${state.squadSeed}\".",
                 style = MaterialTheme.typography.labelMedium,
-                color = Ash,
+                color = muted,
                 modifier = Modifier.padding(top = 6.dp),
             )
+        }
+    }
+}
 
-            HorizontalDivider(Modifier.padding(vertical = 18.dp))
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "??? rolls",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f),
-                )
-                Switch(
-                    checked = state.mysteryEnabled,
-                    onCheckedChange = { viewModel.toggleMystery() },
-                )
-            }
-            Text(
-                text = "About one roll in fifty comes up as a wildcard: no hero, just a " +
-                    "constraint that decides who you play. Turn it off if you want every " +
-                    "roll to land on a hero.",
-                style = MaterialTheme.typography.bodySmall,
-                color = Ash,
+@Composable
+private fun ChallengeSettings(state: RollUiState, viewModel: RollViewModel, onBack: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        SettingsHeader("Challenges", "Back", onBack)
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Spacer(Modifier.height(8.dp))
+            SwitchRow(
+                title = "Standard challenges",
+                description = "The built-in pool. Turn it off to run purely on your own packs.",
+                checked = state.standardEnabled,
+                onToggle = viewModel::toggleStandard,
             )
 
-            HorizontalDivider(Modifier.padding(vertical = 18.dp))
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "No Challenge Mode",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f),
-                )
-                Switch(
-                    checked = state.noChallengeMode,
-                    onCheckedChange = { viewModel.toggleNoChallengeMode() },
-                )
-            }
-            Text(
-                text = "Rolls hand you a hero and nothing else. When you're ready, escalate " +
-                    "deals the constraint the roll was holding back, and that one can't be " +
-                    "swiped away.",
-                style = MaterialTheme.typography.bodySmall,
-                color = Ash,
+            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            SwitchRow(
+                title = "??? rolls",
+                description = "About one roll in fifty comes up as a wildcard: no hero, just a " +
+                    "constraint that decides who you play. Needs the standard pool.",
+                checked = state.mysteryEnabled,
+                onToggle = viewModel::toggleMystery,
             )
 
-            HorizontalDivider(Modifier.padding(vertical = 18.dp))
+            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            SwitchRow(
+                title = "No Challenge Mode",
+                description = "Rolls hand you a hero and nothing else. When you're ready, " +
+                    "escalate deals the constraint the roll was holding back, and that one " +
+                    "can't be swiped away.",
+                checked = state.noChallengeMode,
+                onToggle = viewModel::toggleNoChallengeMode,
+            )
 
-            Text("House rules", style = MaterialTheme.typography.titleMedium)
+            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            Text("Rule packs", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "Your own constraints. They join the pool alongside the built-in " +
-                    "ones, so rolls, mutate and escalate all pick them up.",
+                text = "Bundle your own constraints into packs and flip them on per session. " +
+                    "Tag rules Warmup or Chaos to join those pools, or use any tag you like - " +
+                    "custom tags only roll in Mixed.",
                 style = MaterialTheme.typography.bodySmall,
-                color = Ash,
+                color = muted,
             )
-            state.customChallenges.forEach { custom ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(top = 6.dp),
-                ) {
+
+            state.rulePacks.forEach { pack ->
+                Spacer(Modifier.height(10.dp))
+                PackCard(pack, viewModel)
+            }
+
+            Spacer(Modifier.height(14.dp))
+            var newPackName by remember { mutableStateOf("") }
+            OutlinedTextField(
+                value = newPackName,
+                onValueChange = { newPackName = it },
+                label = { Text("New pack name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    viewModel.createPack(newPackName)
+                    newPackName = ""
+                },
+                enabled = newPackName.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Create pack") }
+            Spacer(Modifier.height(20.dp))
+        }
+    }
+}
+
+@Composable
+private fun PackCard(pack: RulePack, viewModel: RollViewModel) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = pack.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(checked = pack.enabled, onCheckedChange = { viewModel.togglePack(pack.name) })
+            }
+
+            pack.rules.forEach { rule ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(custom.text, style = MaterialTheme.typography.bodyMedium)
-                        Text(custom.intensity.label, style = MaterialTheme.typography.labelSmall, color = Ash)
+                        Text(rule.text, style = MaterialTheme.typography.bodyMedium)
+                        Text(rule.tag, style = MaterialTheme.typography.labelSmall, color = muted)
                     }
-                    TextButton(onClick = { viewModel.removeCustomChallenge(custom) }) {
+                    TextButton(onClick = { viewModel.removeRule(pack.name, rule) }) {
                         Text("Remove")
                     }
                 }
             }
-            Spacer(Modifier.height(10.dp))
-            var newRule by remember { mutableStateOf("") }
-            var newIntensity by remember { mutableStateOf(Intensity.CHAOS) }
+
+            Spacer(Modifier.height(6.dp))
+            var ruleText by remember(pack.name) { mutableStateOf("") }
+            var ruleTag by remember(pack.name) { mutableStateOf("") }
             OutlinedTextField(
-                value = newRule,
-                onValueChange = { newRule = it },
+                value = ruleText,
+                onValueChange = { ruleText = it },
                 label = { Text("New constraint") },
                 modifier = Modifier.fillMaxWidth(),
             )
+            Spacer(Modifier.height(6.dp))
+            OutlinedTextField(
+                value = ruleTag,
+                onValueChange = { ruleTag = it },
+                label = { Text("Tag: Warmup, Chaos or your own") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
             Spacer(Modifier.height(8.dp))
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                Intensity.entries.forEachIndexed { index, intensity ->
-                    SegmentedButton(
-                        selected = newIntensity == intensity,
-                        onClick = { newIntensity = intensity },
-                        shape = SegmentedButtonDefaults.itemShape(index = index, count = Intensity.entries.size),
-                    ) { Text(intensity.label) }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = {
+                        viewModel.addRule(pack.name, ruleText, ruleTag)
+                        ruleText = ""
+                        ruleTag = ""
+                    },
+                    enabled = ruleText.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                ) { Text("Add rule") }
+                TextButton(onClick = { viewModel.deletePack(pack.name) }) {
+                    Text("Delete pack")
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun HeroPoolSettings(state: RollUiState, viewModel: RollViewModel, onBack: () -> Unit) {
+    val counts = state.showPoolCounts
+    val activeTotal = Roster.heroes.count { it.name !in state.disabledHeroes }
+
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        SettingsHeader("Hero pool", "Back", onBack)
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+        ) {
             Spacer(Modifier.height(8.dp))
-            Button(
-                onClick = {
-                    viewModel.addCustomChallenge(newRule, newIntensity)
-                    newRule = ""
-                },
-                enabled = newRule.isNotBlank(),
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Add house rule") }
+            SwitchRow(
+                title = "Show counts",
+                description = "Show how many heroes are active, overall and per role.",
+                checked = counts,
+                onToggle = viewModel::toggleShowPoolCounts,
+            )
 
-            HorizontalDivider(Modifier.padding(vertical = 18.dp))
-
+            HorizontalDivider(Modifier.padding(vertical = 16.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "Hero pool",
+                    text = if (counts) "All heroes · $activeTotal/${Roster.heroes.size}" else "All heroes",
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f),
                 )
@@ -812,30 +993,31 @@ private fun SettingsScreen(
                     "everything the roller can land on, it ignores the bans rather than " +
                     "rolling nothing.",
                 style = MaterialTheme.typography.bodySmall,
-                color = Ash,
+                color = muted,
             )
 
             Role.entries.forEach { role ->
+                val roleHeroes = Roster.byRole(role)
+                val activeInRole = roleHeroes.count { it.name !in state.disabledHeroes }
                 Spacer(Modifier.height(14.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = role.label.uppercase(),
+                        text = role.label.uppercase() +
+                            if (counts) " · $activeInRole/${roleHeroes.size}" else "",
                         style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp),
                         color = role.tint,
                         modifier = Modifier.weight(1f),
                     )
                     Switch(
-                        checked = Roster.byRole(role).none { it.name in state.disabledHeroes },
+                        checked = roleHeroes.none { it.name in state.disabledHeroes },
                         onCheckedChange = { on ->
-                            viewModel.setGroupEnabled(Roster.byRole(role).map { it.name }, on)
+                            viewModel.setGroupEnabled(roleHeroes.map { it.name }, on)
                         },
                     )
                 }
                 Spacer(Modifier.height(6.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Roster.byRole(role).forEach { hero ->
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    roleHeroes.forEach { hero ->
                         FilterChip(
                             selected = hero.name !in state.disabledHeroes,
                             onClick = { viewModel.toggleHero(hero.name) },
@@ -844,6 +1026,96 @@ private fun SettingsScreen(
                     }
                 }
             }
+            Spacer(Modifier.height(20.dp))
+        }
+    }
+}
+
+@Composable
+private fun AccessibilitySettings(state: RollUiState, viewModel: RollViewModel, onBack: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        SettingsHeader("Accessibility", "Back", onBack)
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "TEXT SIZE",
+                style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp),
+                color = muted,
+            )
+            Spacer(Modifier.height(6.dp))
+            TextSize.entries.forEach { size ->
+                val selected = state.textSize == size
+                Card(
+                    onClick = { viewModel.setTextSize(size) },
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ),
+                    border = if (selected) {
+                        androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+                    } else {
+                        null
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                    ) {
+                        Text(
+                            text = size.label,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = if (selected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (selected) {
+                            Text(
+                                text = "Selected",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            SwitchRow(
+                title = "High contrast",
+                description = "Brighter text and stronger lines against the dark background.",
+                checked = state.highContrast,
+                onToggle = viewModel::toggleHighContrast,
+            )
+
+            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            SwitchRow(
+                title = "Reduce motion",
+                description = "Skips the opening animation and the roll spin.",
+                checked = state.reduceMotion,
+                onToggle = viewModel::toggleReduceMotion,
+            )
+
+            Spacer(Modifier.height(16.dp))
+            var sliderValue by remember { mutableFloatStateOf(state.spinSeconds) }
+            Text("Spin length", style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = "About %.1f seconds before it lands.".format(sliderValue),
+                style = MaterialTheme.typography.bodySmall,
+                color = muted,
+            )
+            Slider(
+                value = sliderValue,
+                onValueChange = { sliderValue = it },
+                onValueChangeFinished = { viewModel.setSpinSeconds(sliderValue) },
+                valueRange = 1f..5f,
+            )
             Spacer(Modifier.height(20.dp))
         }
     }

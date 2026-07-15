@@ -45,8 +45,11 @@ class RollEngine(seed: Long? = null) {
         mode: PoolMode,
         exclude: List<Challenge> = emptyList(),
         extras: List<Challenge> = emptyList(),
+        includeStandard: Boolean = true,
     ): Challenge {
-        val pool = ChallengePool.matching(role, mode, exclude, extras)
+        // fall back step by step so a too-narrow setup still rolls something
+        val pool = ChallengePool.matching(role, mode, exclude, extras, includeStandard)
+            .ifEmpty { ChallengePool.matching(role, mode, extras = extras, includeStandard = includeStandard) }
             .ifEmpty { ChallengePool.matching(role, mode, extras = extras) }
         return pool.random(random)
     }

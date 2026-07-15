@@ -10,7 +10,8 @@ enum class Intensity(val label: String) {
 }
 
 /**
- * Which slice of the pool the roller draws from. MIXED lets the chaos flow.
+ * Which slice of the pool the roller draws from. MIXED lets the chaos flow,
+ * and it's the only mode that includes custom-tagged pack rules.
  */
 enum class PoolMode(val label: String) {
     WARMUP("Warmup"),
@@ -34,6 +35,9 @@ enum class Category(val label: String) {
  * @param roles which roles this challenge makes sense for; null means anyone.
  * @param overridesHero true when the constraint itself decides what you play,
  *   so the rolled hero is just a suggestion.
+ * @param customTag free-text tag from a rule pack. Tagged rules only roll in
+ *   Mixed, since Warmup and Chaos filter to their exact tag.
+ * @param packName which rule pack this came from, shown instead of the category.
  */
 data class Challenge(
     val text: String,
@@ -41,4 +45,6 @@ data class Challenge(
     val intensity: Intensity,
     val roles: Set<Role>? = null,
     val overridesHero: Boolean = false,
+    val customTag: String? = null,
+    val packName: String? = null,
 )

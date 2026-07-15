@@ -37,8 +37,14 @@ queue.
 - **No Challenge Mode**: rolls hand you a hero and nothing else. Escalate
   deals the constraint the roll was holding back, locked in like any opener.
   Lives in settings.
-- **House rules**: add your own constraints in settings, tagged warmup or
-  chaos, and they join the pool alongside the built-in ones.
+- **Rule packs**: bundle your own constraints into named packs and flip them
+  on per session. Tag rules Warmup or Chaos to join those pools, or invent
+  your own tags, which roll in Mixed. The standard pool has its own switch,
+  so you can run built-ins, packs, or both.
+- **Accessibility**: text size, high contrast, reduce motion and spin length
+  all live in their own settings page. Settings is organized into sections:
+  squad sync, challenges, hero pool (with live active counts you can hide),
+  and accessibility.
 - **I died**: one big button under the card. Tap it when you die and the
   stack escalates automatically, with a death counter keeping score.
 

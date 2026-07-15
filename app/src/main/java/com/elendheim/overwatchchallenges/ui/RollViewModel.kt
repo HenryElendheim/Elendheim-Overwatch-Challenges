@@ -2,19 +2,30 @@ package com.elendheim.overwatchchallenges.ui
 
 import android.app.Application
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
-import com.elendheim.overwatchchallenges.data.Category
 import com.elendheim.overwatchchallenges.data.Challenge
+import com.elendheim.overwatchchallenges.data.CustomRule
 import com.elendheim.overwatchchallenges.data.Intensity
 import com.elendheim.overwatchchallenges.data.PoolMode
 import com.elendheim.overwatchchallenges.data.Role
+import com.elendheim.overwatchchallenges.data.RulePack
+import com.elendheim.overwatchchallenges.data.toChallenges
 import com.elendheim.overwatchchallenges.engine.RollEngine
 import com.elendheim.overwatchchallenges.engine.RollResult
 import org.json.JSONArray
 import org.json.JSONObject
+
+enum class TextSize(val label: String, val scale: Float) {
+    SMALL("Small", 0.85f),
+    NORMAL("Normal", 1f),
+    LARGE("Large", 1.15f),
+    LARGER("Larger", 1.3f),
+    LARGEST("Largest", 1.45f),
+}
 
 data class RollUiState(
     val roleFilter: Role? = null,
@@ -24,11 +35,17 @@ data class RollUiState(
     val result: RollResult? = null,
     val rollId: Int = 0,
     val mutations: Int = 0,
+    val deaths: Int = 0,
     val disabledHeroes: Set<String> = emptySet(),
     val mysteryEnabled: Boolean = true,
     val noChallengeMode: Boolean = false,
-    val customChallenges: List<Challenge> = emptyList(),
-    val deaths: Int = 0,
+    val standardEnabled: Boolean = true,
+    val rulePacks: List<RulePack> = emptyList(),
+    val showPoolCounts: Boolean = true,
+    val textSize: TextSize = TextSize.NORMAL,
+    val highContrast: Boolean = false,
+    val reduceMotion: Boolean = false,
+    val spinSeconds: Float = 2.4f,
 )
 
 class RollViewModel(application: Application) : AndroidViewModel(application) {
@@ -40,12 +57,22 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
             disabledHeroes = prefs.getStringSet(KEY_DISABLED_HEROES, null).orEmpty().toSet(),
             mysteryEnabled = prefs.getBoolean(KEY_MYSTERY, true),
             noChallengeMode = prefs.getBoolean(KEY_NO_CHALLENGE, false),
-            customChallenges = loadCustoms(prefs.getString(KEY_CUSTOM_CHALLENGES, null)),
+            standardEnabled = prefs.getBoolean(KEY_STANDARD, true),
+            rulePacks = loadPacks(prefs),
+            showPoolCounts = prefs.getBoolean(KEY_SHOW_COUNTS, true),
+            textSize = TextSize.entries.firstOrNull { it.name == prefs.getString(KEY_TEXT_SIZE, null) }
+                ?: TextSize.NORMAL,
+            highContrast = prefs.getBoolean(KEY_HIGH_CONTRAST, false),
+            reduceMotion = prefs.getBoolean(KEY_REDUCE_MOTION, false),
+            spinSeconds = prefs.getFloat(KEY_SPIN_SECONDS, 2.4f),
         )
     )
         private set
 
     private var engine = RollEngine()
+
+    private fun packExtras(): List<Challenge> =
+        state.rulePacks.filter { it.enabled }.flatMap { it.toChallenges() }
 
     fun setRoleFilter(role: Role?) {
         state = state.copy(roleFilter = role)
@@ -98,39 +125,114 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         state = state.copy(noChallengeMode = enabled)
     }
 
-    /** House rules: your own constraints, fed into the same pools as everything else. */
-    fun addCustomChallenge(text: String, intensity: Intensity) {
-        val clean = text.trim()
+    /** The built-in pool. Off means the roller runs purely on your packs. */
+    fun toggleStandard() {
+        val enabled = !state.standardEnabled
+        prefs.edit().putBoolean(KEY_STANDARD, enabled).apply()
+        state = state.copy(standardEnabled = enabled)
+    }
+
+    fun toggleShowPoolCounts() {
+        val show = !state.showPoolCounts
+        prefs.edit().putBoolean(KEY_SHOW_COUNTS, show).apply()
+        state = state.copy(showPoolCounts = show)
+    }
+
+    fun setTextSize(size: TextSize) {
+        prefs.edit().putString(KEY_TEXT_SIZE, size.name).apply()
+        state = state.copy(textSize = size)
+    }
+
+    fun toggleHighContrast() {
+        val on = !state.highContrast
+        prefs.edit().putBoolean(KEY_HIGH_CONTRAST, on).apply()
+        state = state.copy(highContrast = on)
+    }
+
+    fun toggleReduceMotion() {
+        val on = !state.reduceMotion
+        prefs.edit().putBoolean(KEY_REDUCE_MOTION, on).apply()
+        state = state.copy(reduceMotion = on)
+    }
+
+    fun setSpinSeconds(seconds: Float) {
+        val clamped = seconds.coerceIn(1f, 5f)
+        prefs.edit().putFloat(KEY_SPIN_SECONDS, clamped).apply()
+        state = state.copy(spinSeconds = clamped)
+    }
+
+    // rule packs
+
+    fun createPack(name: String) {
+        val clean = name.trim()
         if (clean.isEmpty()) return
-        if (state.customChallenges.any { it.text.equals(clean, ignoreCase = true) }) return
-        saveCustoms(state.customChallenges + Challenge(clean, Category.HOUSE, intensity))
+        if (state.rulePacks.any { it.name.equals(clean, ignoreCase = true) }) return
+        savePacks(state.rulePacks + RulePack(clean, enabled = true, rules = emptyList()))
     }
 
-    fun removeCustomChallenge(challenge: Challenge) {
-        saveCustoms(state.customChallenges - challenge)
+    fun deletePack(name: String) {
+        savePacks(state.rulePacks.filterNot { it.name == name })
     }
 
-    private fun saveCustoms(customs: List<Challenge>) {
+    fun togglePack(name: String) {
+        savePacks(state.rulePacks.map { if (it.name == name) it.copy(enabled = !it.enabled) else it })
+    }
+
+    fun addRule(packName: String, text: String, tag: String) {
+        val cleanText = text.trim()
+        if (cleanText.isEmpty()) return
+        val cleanTag = tag.trim().ifEmpty { Intensity.CHAOS.label }
+        savePacks(
+            state.rulePacks.map { pack ->
+                if (pack.name != packName) return@map pack
+                if (pack.rules.any { it.text.equals(cleanText, ignoreCase = true) }) return@map pack
+                pack.copy(rules = pack.rules + CustomRule(cleanText, cleanTag))
+            }
+        )
+    }
+
+    fun removeRule(packName: String, rule: CustomRule) {
+        savePacks(
+            state.rulePacks.map { pack ->
+                if (pack.name == packName) pack.copy(rules = pack.rules - rule) else pack
+            }
+        )
+    }
+
+    private fun savePacks(packs: List<RulePack>) {
         val json = JSONArray()
-        customs.forEach { custom ->
+        packs.forEach { pack ->
+            val rules = JSONArray()
+            pack.rules.forEach { rule ->
+                rules.put(JSONObject().put("text", rule.text).put("tag", rule.tag))
+            }
             json.put(
                 JSONObject()
-                    .put("text", custom.text)
-                    .put("intensity", custom.intensity.name)
+                    .put("name", pack.name)
+                    .put("enabled", pack.enabled)
+                    .put("rules", rules)
             )
         }
-        prefs.edit().putString(KEY_CUSTOM_CHALLENGES, json.toString()).apply()
-        state = state.copy(customChallenges = customs)
+        prefs.edit().putString(KEY_RULE_PACKS, json.toString()).apply()
+        state = state.copy(rulePacks = packs)
     }
+
+    // the loop
 
     fun roll() {
         val hero = engine.rollHero(state.roleFilter, state.disabledHeroes)
         // the rare ??? wildcard: a constraint that decides your hero instead
         // of the roll. the chance check always runs so squad seeds stay in step.
-        // no-challenge mode skips wildcards; a hidden hero makes no sense there
-        val mystery = engine.rollMysteryChance() && state.mysteryEnabled && !state.noChallengeMode
+        // wildcards live in the standard pool and make no sense hero-less
+        val mystery = engine.rollMysteryChance() &&
+            state.mysteryEnabled && !state.noChallengeMode && state.standardEnabled
         val challenge = (if (mystery) engine.rollMysteryChallenge(state.poolMode) else null)
-            ?: engine.rollChallenge(hero.role, state.poolMode, extras = state.customChallenges)
+            ?: engine.rollChallenge(
+                hero.role,
+                state.poolMode,
+                extras = packExtras(),
+                includeStandard = state.standardEnabled,
+            )
         // always roll the punishment so the stakes toggle can show and hide the
         // same one, and so squad seeds stay in step whatever anyone toggles
         val punishment = engine.rollPunishment()
@@ -155,7 +257,8 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
             current.hero.role,
             state.poolMode,
             exclude = current.challenges,
-            extras = state.customChallenges,
+            extras = packExtras(),
+            includeStandard = state.standardEnabled,
         )
         val challenges = current.challenges.dropLast(1) + fresh
         state = state.copy(
@@ -183,7 +286,8 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
             current.hero.role,
             state.poolMode,
             exclude = current.challenges,
-            extras = state.customChallenges,
+            extras = packExtras(),
+            includeStandard = state.standardEnabled,
         )
         state = state.copy(result = current.copy(challenges = current.challenges + extra))
     }
@@ -208,24 +312,51 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         const val KEY_MYSTERY = "mystery_enabled"
         const val KEY_NO_CHALLENGE = "no_challenge_mode"
         const val KEY_CUSTOM_CHALLENGES = "custom_challenges"
+        const val KEY_RULE_PACKS = "rule_packs"
+        const val KEY_STANDARD = "standard_enabled"
+        const val KEY_SHOW_COUNTS = "show_pool_counts"
+        const val KEY_TEXT_SIZE = "text_size"
+        const val KEY_HIGH_CONTRAST = "high_contrast"
+        const val KEY_REDUCE_MOTION = "reduce_motion"
+        const val KEY_SPIN_SECONDS = "spin_seconds"
 
-        fun loadCustoms(raw: String?): List<Challenge> {
-            if (raw == null) return emptyList()
+        fun loadPacks(prefs: SharedPreferences): List<RulePack> {
+            val raw = prefs.getString(KEY_RULE_PACKS, null)
+            if (raw != null) {
+                return runCatching { parsePacks(raw) }.getOrDefault(emptyList())
+            }
+            // migrate the old flat house-rules list into a starter pack
+            val legacy = prefs.getString(KEY_CUSTOM_CHALLENGES, null) ?: return emptyList()
             return runCatching {
-                val json = JSONArray(raw)
-                (0 until json.length()).map { i ->
+                val json = JSONArray(legacy)
+                val rules = (0 until json.length()).map { i ->
                     val entry = json.getJSONObject(i)
-                    Challenge(
-                        text = entry.getString("text"),
-                        category = Category.HOUSE,
-                        intensity = if (entry.optString("intensity") == Intensity.CHAOS.name) {
-                            Intensity.CHAOS
-                        } else {
-                            Intensity.WARMUP
-                        },
-                    )
+                    val tag = if (entry.optString("intensity") == Intensity.CHAOS.name) {
+                        Intensity.CHAOS.label
+                    } else {
+                        Intensity.WARMUP.label
+                    }
+                    CustomRule(entry.getString("text"), tag)
                 }
+                if (rules.isEmpty()) emptyList()
+                else listOf(RulePack("House rules", enabled = true, rules = rules))
             }.getOrDefault(emptyList())
+        }
+
+        fun parsePacks(raw: String): List<RulePack> {
+            val json = JSONArray(raw)
+            return (0 until json.length()).map { i ->
+                val pack = json.getJSONObject(i)
+                val rulesJson = pack.getJSONArray("rules")
+                RulePack(
+                    name = pack.getString("name"),
+                    enabled = pack.optBoolean("enabled", true),
+                    rules = (0 until rulesJson.length()).map { j ->
+                        val rule = rulesJson.getJSONObject(j)
+                        CustomRule(rule.getString("text"), rule.optString("tag", Intensity.CHAOS.label))
+                    },
+                )
+            }
         }
     }
 }

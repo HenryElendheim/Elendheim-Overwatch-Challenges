@@ -85,9 +85,13 @@ object ChallengePool {
         mode: PoolMode,
         exclude: Collection<Challenge> = emptyList(),
         extras: List<Challenge> = emptyList(),
-    ): List<Challenge> = (all + extras).filter { challenge ->
-        val roleOk = challenge.roles == null || role in challenge.roles
-        !challenge.overridesHero && roleOk && matchesMode(challenge, mode) && challenge !in exclude
+        includeStandard: Boolean = true,
+    ): List<Challenge> {
+        val base = if (includeStandard) all + extras else extras
+        return base.filter { challenge ->
+            val roleOk = challenge.roles == null || role in challenge.roles
+            !challenge.overridesHero && roleOk && matchesMode(challenge, mode) && challenge !in exclude
+        }
     }
 
     /** The wildcard pool: constraints that decide your hero for you. */
@@ -95,8 +99,9 @@ object ChallengePool {
         all.filter { it.overridesHero && matchesMode(it, mode) }
 
     private fun matchesMode(challenge: Challenge, mode: PoolMode): Boolean = when (mode) {
+        // custom-tagged pack rules only surface in the everything-goes pool
         PoolMode.MIXED -> true
-        PoolMode.WARMUP -> challenge.intensity == Intensity.WARMUP
-        PoolMode.CHAOS -> challenge.intensity == Intensity.CHAOS
+        PoolMode.WARMUP -> challenge.customTag == null && challenge.intensity == Intensity.WARMUP
+        PoolMode.CHAOS -> challenge.customTag == null && challenge.intensity == Intensity.CHAOS
     }
 }
