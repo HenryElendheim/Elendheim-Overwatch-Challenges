@@ -7,6 +7,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -17,6 +18,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -76,8 +80,10 @@ import com.elendheim.overwatchchallenges.data.Role
 import com.elendheim.overwatchchallenges.data.Roster
 import com.elendheim.overwatchchallenges.engine.RollResult
 import com.elendheim.overwatchchallenges.ui.theme.Ash
+import com.elendheim.overwatchchallenges.ui.theme.Cloud
 import com.elendheim.overwatchchallenges.ui.theme.DamageRed
 import com.elendheim.overwatchchallenges.ui.theme.Ember
+import com.elendheim.overwatchchallenges.ui.theme.Night
 import com.elendheim.overwatchchallenges.ui.theme.SupportGreen
 import com.elendheim.overwatchchallenges.ui.theme.TankBlue
 import kotlin.math.abs
@@ -96,6 +102,8 @@ fun RollScreen(viewModel: RollViewModel = viewModel()) {
     val state = viewModel.state
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var landedRollId by rememberSaveable { mutableIntStateOf(0) }
+    // saveable so the intro plays once per launch, not again on rotation
+    var introDone by rememberSaveable { mutableStateOf(false) }
     // what the result screen is allowed to show; only advances once the reel
     // has landed, so a fresh roll never leaks through the outgoing screen
     var landedResult by remember { mutableStateOf(state.result) }
@@ -109,7 +117,8 @@ fun RollScreen(viewModel: RollViewModel = viewModel()) {
         else -> "result"
     }
 
-    Scaffold { innerPadding ->
+    Box(Modifier.fillMaxSize()) {
+        Scaffold { innerPadding ->
         AnimatedContent(
             targetState = screenKey,
             transitionSpec = {
@@ -156,6 +165,75 @@ fun RollScreen(viewModel: RollViewModel = viewModel()) {
                             onSettings = { showSettings = true },
                         )
                     }
+            }
+        }
+        }
+
+        if (!introDone) {
+            IntroSplash(onDone = { introDone = true })
+        }
+    }
+}
+
+/**
+ * The maker's mark. Plays once per launch, well under two seconds, then gets
+ * out of the way.
+ */
+@Composable
+private fun IntroSplash(onDone: () -> Unit) {
+    val title = remember { MutableTransitionState(false).apply { targetState = true } }
+    var subtitleVisible by remember { mutableStateOf(false) }
+    var fading by remember { mutableStateOf(false) }
+    val overlayAlpha by animateFloatAsState(
+        targetValue = if (fading) 0f else 1f,
+        animationSpec = tween(280),
+        label = "introFade",
+    )
+
+    LaunchedEffect(Unit) {
+        delay(320)
+        subtitleVisible = true
+        delay(800)
+        fading = true
+        delay(300)
+        onDone()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer { alpha = overlayAlpha }
+            .background(Night)
+            // swallow taps so nothing underneath gets pressed mid-intro
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {},
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            AnimatedVisibility(
+                visibleState = title,
+                enter = fadeIn(tween(340)) + scaleIn(tween(340), initialScale = 1.12f),
+            ) {
+                Text(
+                    text = "ELENDHEIM",
+                    style = MaterialTheme.typography.headlineLarge.copy(letterSpacing = 6.sp),
+                    fontWeight = FontWeight.Bold,
+                    color = Ember,
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            AnimatedVisibility(
+                visible = subtitleVisible,
+                enter = fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 2 },
+            ) {
+                Text(
+                    text = "Overwatch Challenges",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Cloud,
+                )
             }
         }
     }
