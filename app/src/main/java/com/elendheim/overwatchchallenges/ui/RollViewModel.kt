@@ -28,6 +28,19 @@ enum class TextSize(val label: String, val scale: Float) {
     LARGEST("Largest", 1.45f),
 }
 
+/** How tightly the reel packs hero names during the spin. */
+enum class ReelDensity(val label: String, val itemHeight: Int) {
+    COMPACT("Compact", 72),
+    NORMAL("Normal", 96),
+    ROOMY("Roomy", 128),
+}
+
+enum class ReelColor(val label: String) {
+    ROLE("Role colors"),
+    EMBER("Orange"),
+    WHITE("White"),
+}
+
 data class RollUiState(
     val roleFilter: Role? = null,
     val poolMode: PoolMode = PoolMode.MIXED,
@@ -47,6 +60,10 @@ data class RollUiState(
     val highContrast: Boolean = false,
     val reduceMotion: Boolean = false,
     val spinSeconds: Float = 2.4f,
+    val reelDensity: ReelDensity = ReelDensity.NORMAL,
+    val reelColor: ReelColor = ReelColor.ROLE,
+    val overshootEnabled: Boolean = true,
+    val suspenseEnabled: Boolean = true,
 )
 
 class RollViewModel(application: Application) : AndroidViewModel(application) {
@@ -66,6 +83,12 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
             highContrast = prefs.getBoolean(KEY_HIGH_CONTRAST, false),
             reduceMotion = prefs.getBoolean(KEY_REDUCE_MOTION, false),
             spinSeconds = prefs.getFloat(KEY_SPIN_SECONDS, 2.4f),
+            reelDensity = ReelDensity.entries.firstOrNull { it.name == prefs.getString(KEY_REEL_DENSITY, null) }
+                ?: ReelDensity.NORMAL,
+            reelColor = ReelColor.entries.firstOrNull { it.name == prefs.getString(KEY_REEL_COLOR, null) }
+                ?: ReelColor.ROLE,
+            overshootEnabled = prefs.getBoolean(KEY_OVERSHOOT, true),
+            suspenseEnabled = prefs.getBoolean(KEY_SUSPENSE, true),
         )
     )
         private set
@@ -162,6 +185,28 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         state = state.copy(spinSeconds = clamped)
     }
 
+    fun setReelDensity(density: ReelDensity) {
+        prefs.edit().putString(KEY_REEL_DENSITY, density.name).apply()
+        state = state.copy(reelDensity = density)
+    }
+
+    fun setReelColor(color: ReelColor) {
+        prefs.edit().putString(KEY_REEL_COLOR, color.name).apply()
+        state = state.copy(reelColor = color)
+    }
+
+    fun toggleOvershoot() {
+        val on = !state.overshootEnabled
+        prefs.edit().putBoolean(KEY_OVERSHOOT, on).apply()
+        state = state.copy(overshootEnabled = on)
+    }
+
+    fun toggleSuspense() {
+        val on = !state.suspenseEnabled
+        prefs.edit().putBoolean(KEY_SUSPENSE, on).apply()
+        state = state.copy(suspenseEnabled = on)
+    }
+
     // rule packs
 
     fun createPack(name: String) {
@@ -213,26 +258,58 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    private fun packJson(pack: RulePack): JSONObject {
+        val rules = JSONArray()
+        pack.rules.forEach { rules.put(JSONObject().put("text", it.text).put("tag", it.tag)) }
+        return JSONObject().put("name", pack.name).put("rules", rules)
+    }
+
     /** A pack as a shareable code: paste it on a friend's phone, done. */
     fun exportPack(name: String): String? {
         val pack = state.rulePacks.firstOrNull { it.name == name } ?: return null
-        val rules = JSONArray()
-        pack.rules.forEach { rules.put(JSONObject().put("text", it.text).put("tag", it.tag)) }
-        val json = JSONObject().put("name", pack.name).put("rules", rules)
         return PACK_CODE_PREFIX + Base64.encodeToString(
-            json.toString().toByteArray(Charsets.UTF_8),
+            packJson(pack).toString().toByteArray(Charsets.UTF_8),
             Base64.NO_WRAP,
         )
     }
 
+    /** The same pack as a pretty JSON file. Imports straight back in. */
+    fun exportPackJson(name: String): String? {
+        val pack = state.rulePacks.firstOrNull { it.name == name } ?: return null
+        return packJson(pack).toString(2)
+    }
+
+    /** Human-readable markdown with the import code at the bottom. */
+    fun exportPackMarkdown(name: String): String? {
+        val pack = state.rulePacks.firstOrNull { it.name == name } ?: return null
+        return buildString {
+            appendLine("# ${pack.name}")
+            appendLine()
+            appendLine("An Elendheim Overwatch Challenges rule pack, ${pack.rules.size} rules.")
+            appendLine()
+            pack.rules.forEach { rule ->
+                appendLine("- ${rule.text} (${rule.tag})")
+            }
+            appendLine()
+            appendLine("Import code (paste it under Challenges, Import a pack, or import this file directly):")
+            appendLine()
+            appendLine(exportPack(name))
+        }
+    }
+
+    /** Takes a share code, a raw JSON export, or a markdown file containing the code. */
     fun importPack(code: String): Boolean {
         val trimmed = code.trim()
-        if (!trimmed.startsWith(PACK_CODE_PREFIX)) return false
+        val decoded = when {
+            trimmed.startsWith(PACK_CODE_PREFIX) -> decodeCode(trimmed) ?: return false
+            trimmed.startsWith("{") -> trimmed
+            else -> trimmed.lines()
+                .map { it.trim() }
+                .firstOrNull { it.startsWith(PACK_CODE_PREFIX) }
+                ?.let { decodeCode(it) }
+                ?: return false
+        }
         return runCatching {
-            val decoded = String(
-                Base64.decode(trimmed.removePrefix(PACK_CODE_PREFIX), Base64.DEFAULT),
-                Charsets.UTF_8,
-            )
             val json = JSONObject(decoded)
             val rulesJson = json.getJSONArray("rules")
             val rules = (0 until rulesJson.length()).map { i ->
@@ -249,6 +326,13 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
             true
         }.getOrDefault(false)
     }
+
+    private fun decodeCode(code: String): String? = runCatching {
+        String(
+            Base64.decode(code.removePrefix(PACK_CODE_PREFIX), Base64.DEFAULT),
+            Charsets.UTF_8,
+        )
+    }.getOrNull()
 
     private fun savePacks(packs: List<RulePack>) {
         val json = JSONArray()

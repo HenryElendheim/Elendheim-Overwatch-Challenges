@@ -2,6 +2,8 @@ package com.elendheim.overwatchchallenges.ui
 
 import android.content.Intent
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -170,6 +172,7 @@ fun RollScreen(viewModel: RollViewModel) {
                         onBack = { settingsPage = "root" },
                     )
                     screen == "settings:heroes" -> HeroPoolSettings(state, viewModel) { settingsPage = "root" }
+                    screen == "settings:spinstyle" -> SpinSettings(state, viewModel) { settingsPage = "root" }
                     screen == "settings:access" -> AccessibilitySettings(state, viewModel) { settingsPage = "root" }
 
                     screen == "start" -> StartScreen(
@@ -336,13 +339,17 @@ private fun SpinScreen(state: RollUiState, onLanded: () -> Unit) {
     val spinMillis = remember(state.rollId) {
         val random = Random(state.rollId * 31L + 5)
         val base = (state.spinSeconds * 1000).toInt()
-        val suspense = if (random.nextInt(3) == 0) base / 2 + random.nextInt(600) else 0
+        val suspense = if (state.suspenseEnabled && random.nextInt(3) == 0) {
+            base / 2 + random.nextInt(600)
+        } else {
+            0
+        }
         (base + suspense).coerceIn(600, 8000)
     }
     // the target sits two entries before the end so the overshoot has
     // something to scroll past
     val targetIndex = reel.size - 3
-    val itemPx = with(LocalDensity.current) { 96.dp.toPx() }
+    val itemPx = with(LocalDensity.current) { state.reelDensity.itemHeight.dp.toPx() }
     val offset = remember(state.rollId) { Animatable(0f) }
 
     LaunchedEffect(state.rollId) {
@@ -356,7 +363,11 @@ private fun SpinScreen(state: RollUiState, onLanded: () -> Unit) {
             targetValue = targetIndex * itemPx,
             animationSpec = tween(
                 durationMillis = spinMillis,
-                easing = CubicBezierEasing(0.16f, 0.84f, 0.28f, 1.04f),
+                easing = if (state.overshootEnabled) {
+                    CubicBezierEasing(0.16f, 0.84f, 0.28f, 1.04f)
+                } else {
+                    CubicBezierEasing(0.16f, 0.84f, 0.3f, 1f)
+                },
             ),
         )
         delay(340)
@@ -365,6 +376,11 @@ private fun SpinScreen(state: RollUiState, onLanded: () -> Unit) {
 
     // a wildcard roll never shows the hero; the reel lands on ??? instead
     val mystery = result.challenges.any { it.overridesHero }
+    val plainColor = when (state.reelColor) {
+        ReelColor.ROLE -> null
+        ReelColor.EMBER -> Ember
+        ReelColor.WHITE -> MaterialTheme.colorScheme.onBackground
+    }
 
     Box(Modifier.fillMaxSize()) {
         reel.forEachIndexed { index, hero ->
@@ -373,7 +389,7 @@ private fun SpinScreen(state: RollUiState, onLanded: () -> Unit) {
                 text = if (isTarget && mystery) "???" else hero.name,
                 style = MaterialTheme.typography.displaySmall,
                 fontWeight = FontWeight.Bold,
-                color = if (isTarget && mystery) Ember else hero.role.tint,
+                color = if (isTarget && mystery) Ember else plainColor ?: hero.role.tint,
                 modifier = Modifier
                     .align(Alignment.Center)
                     .graphicsLayer {
@@ -771,6 +787,11 @@ private fun SettingsRoot(state: RollUiState, onOpen: (String) -> Unit, onDone: (
                 onClick = { onOpen("heroes") },
             )
             SettingsRow(
+                title = "Spin",
+                subtitle = "Length, suspense, reel style and colors",
+                onClick = { onOpen("spinstyle") },
+            )
+            SettingsRow(
                 title = "Accessibility",
                 subtitle = "Text size, contrast and motion",
                 onClick = { onOpen("access") },
@@ -972,14 +993,26 @@ private fun ChallengeSettings(
             Text("Import a pack", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "Paste a code someone shared from their pack page and it lands here " +
-                    "as a new pack.",
+                text = "Paste a shared code, or pick a JSON or text file someone saved " +
+                    "from their pack page. Either way it lands here as a new pack.",
                 style = MaterialTheme.typography.bodySmall,
                 color = muted,
             )
             Spacer(Modifier.height(8.dp))
             var importCode by remember { mutableStateOf("") }
             var importFailed by remember { mutableStateOf(false) }
+            val context = LocalContext.current
+            val openPackFile = rememberLauncherForActivityResult(
+                ActivityResultContracts.OpenDocument()
+            ) { uri ->
+                if (uri != null) {
+                    val content = runCatching {
+                        context.contentResolver.openInputStream(uri)
+                            ?.use { it.readBytes().toString(Charsets.UTF_8) }
+                    }.getOrNull()
+                    importFailed = content == null || !viewModel.importPack(content)
+                }
+            }
             OutlinedTextField(
                 value = importCode,
                 onValueChange = {
@@ -990,18 +1023,28 @@ private fun ChallengeSettings(
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(8.dp))
-            Button(
-                onClick = {
-                    importFailed = !viewModel.importPack(importCode)
-                    if (!importFailed) importCode = ""
-                },
-                enabled = importCode.isNotBlank(),
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Import pack") }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = {
+                        importFailed = !viewModel.importPack(importCode)
+                        if (!importFailed) importCode = ""
+                    },
+                    enabled = importCode.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                ) { Text("Import code") }
+                OutlinedButton(
+                    onClick = {
+                        openPackFile.launch(
+                            arrayOf("application/json", "text/*", "application/octet-stream")
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                ) { Text("From file") }
+            }
             if (importFailed) {
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "Couldn't read that code.",
+                    text = "Couldn't read that. Try a code or a saved pack file.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
@@ -1065,6 +1108,26 @@ private fun PackDetailSettings(
             }
 
             Spacer(Modifier.height(8.dp))
+            val saveJson = rememberLauncherForActivityResult(
+                ActivityResultContracts.CreateDocument("application/json")
+            ) { uri ->
+                if (uri != null) {
+                    viewModel.exportPackJson(pack.name)?.let { content ->
+                        context.contentResolver.openOutputStream(uri)
+                            ?.use { it.write(content.toByteArray(Charsets.UTF_8)) }
+                    }
+                }
+            }
+            val saveMarkdown = rememberLauncherForActivityResult(
+                ActivityResultContracts.CreateDocument("text/markdown")
+            ) { uri ->
+                if (uri != null) {
+                    viewModel.exportPackMarkdown(pack.name)?.let { content ->
+                        context.contentResolver.openOutputStream(uri)
+                            ?.use { it.write(content.toByteArray(Charsets.UTF_8)) }
+                    }
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(
                     onClick = {
@@ -1077,7 +1140,7 @@ private fun PackDetailSettings(
                         }
                     },
                     modifier = Modifier.weight(1f),
-                ) { Text("Share pack") }
+                ) { Text("Share code") }
                 OutlinedButton(
                     onClick = {
                         selecting = !selecting
@@ -1087,6 +1150,17 @@ private fun PackDetailSettings(
                     enabled = pack.rules.isNotEmpty(),
                     modifier = Modifier.weight(1f),
                 ) { Text(if (selecting) "Cancel" else "Select") }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(
+                    onClick = { saveJson.launch("${pack.name}.json") },
+                    modifier = Modifier.weight(1f),
+                ) { Text("Save as JSON") }
+                OutlinedButton(
+                    onClick = { saveMarkdown.launch("${pack.name}.md") },
+                    modifier = Modifier.weight(1f),
+                ) { Text("Save as text") }
             }
 
             if (selecting) {
@@ -1478,8 +1552,22 @@ private fun AccessibilitySettings(state: RollUiState, viewModel: RollViewModel, 
                 checked = state.reduceMotion,
                 onToggle = viewModel::toggleReduceMotion,
             )
+            Spacer(Modifier.height(20.dp))
+        }
+    }
+}
 
-            Spacer(Modifier.height(16.dp))
+@Composable
+private fun SpinSettings(state: RollUiState, viewModel: RollViewModel, onBack: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        SettingsHeader("Spin", "Back", onBack)
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Spacer(Modifier.height(8.dp))
             var sliderValue by remember { mutableFloatStateOf(state.spinSeconds) }
             Text("Spin length", style = MaterialTheme.typography.titleMedium)
             Text(
@@ -1492,6 +1580,75 @@ private fun AccessibilitySettings(state: RollUiState, viewModel: RollViewModel, 
                 onValueChange = { sliderValue = it },
                 onValueChangeFinished = { viewModel.setSpinSeconds(sliderValue) },
                 valueRange = 1f..5f,
+            )
+
+            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            SwitchRow(
+                title = "Suspense spins",
+                description = "Roughly one spin in three runs longer before it lands.",
+                checked = state.suspenseEnabled,
+                onToggle = viewModel::toggleSuspense,
+            )
+
+            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            SwitchRow(
+                title = "Overshoot",
+                description = "The reel scrolls slightly past the winner and settles back, " +
+                    "slot-machine style.",
+                checked = state.overshootEnabled,
+                onToggle = viewModel::toggleOvershoot,
+            )
+
+            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            Text(
+                text = "REEL DENSITY",
+                style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp),
+                color = muted,
+            )
+            Spacer(Modifier.height(8.dp))
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                ReelDensity.entries.forEachIndexed { index, density ->
+                    SegmentedButton(
+                        selected = state.reelDensity == density,
+                        onClick = { viewModel.setReelDensity(density) },
+                        shape = SegmentedButtonDefaults.itemShape(
+                            index = index,
+                            count = ReelDensity.entries.size,
+                        ),
+                    ) { Text(density.label) }
+                }
+            }
+            Text(
+                text = "How many names crowd the screen while it spins.",
+                style = MaterialTheme.typography.bodySmall,
+                color = muted,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text = "NAME COLORS",
+                style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp),
+                color = muted,
+            )
+            Spacer(Modifier.height(8.dp))
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                ReelColor.entries.forEachIndexed { index, color ->
+                    SegmentedButton(
+                        selected = state.reelColor == color,
+                        onClick = { viewModel.setReelColor(color) },
+                        shape = SegmentedButtonDefaults.itemShape(
+                            index = index,
+                            count = ReelColor.entries.size,
+                        ),
+                    ) { Text(color.label) }
+                }
+            }
+            Text(
+                text = "Role colors flicker as the reel flies; the flat options keep it calm.",
+                style = MaterialTheme.typography.bodySmall,
+                color = muted,
+                modifier = Modifier.padding(top = 4.dp),
             )
             Spacer(Modifier.height(20.dp))
         }

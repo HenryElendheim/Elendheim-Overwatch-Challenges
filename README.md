@@ -42,7 +42,10 @@ queue.
   your own tags, which roll in Mixed. The standard pool has its own switch,
   so you can run built-ins, packs, or both. Each pack has its own page with
   search, in-place editing, multi-select deletion, and a share code you can
-  send to friends, who import it with a paste.
+  send to friends, who import it with a paste. Packs also save as JSON or
+  markdown files and import back from either.
+- **Spin settings**: length, suspense spins, overshoot, reel density and
+  name colors all have their own page.
 - **Accessibility**: text size, high contrast, reduce motion and spin length
   all live in their own settings page. Settings is organized into sections:
   squad sync, challenges, hero pool (with live active counts you can hide),
