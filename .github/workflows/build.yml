@@ -38,11 +38,24 @@ jobs:
           if [ "$HAS_KEYSTORE" = "true" ]; then
             export RELEASE_KEYSTORE="$RUNNER_TEMP/release.jks"
           fi
-          ./gradlew assembleDebug assembleRelease
+          set -o pipefail
+          ./gradlew assembleDebug assembleRelease 2>&1 | tee build-log.txt
         env:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+
+      # temporary: the actions log api is flaky right now, so park compile
+      # errors on the branch where they can be fetched over git
+      - name: Push error log on failure
+        if: failure() && github.ref == 'refs/heads/testing'
+        run: |
+          grep -E "^e: |error:|FAILURE" build-log.txt > ci-errors.txt || cp build-log.txt ci-errors.txt
+          git config user.name "Henry Elendheim"
+          git config user.email "henskielendheim@gmail.com"
+          git add -f ci-errors.txt
+          git commit -m "ci: park the build errors for a look"
+          git push origin HEAD:testing || true
 
       - name: Prepare release APK
         if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''
