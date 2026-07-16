@@ -40,7 +40,9 @@ queue.
 - **Rule packs**: bundle your own constraints into named packs and flip them
   on per session. Tag rules Warmup or Chaos to join those pools, or invent
   your own tags, which roll in Mixed. The standard pool has its own switch,
-  so you can run built-ins, packs, or both.
+  so you can run built-ins, packs, or both. Each pack has its own page with
+  search, in-place editing, multi-select deletion, and a share code you can
+  send to friends, who import it with a paste.
 - **Accessibility**: text size, high contrast, reduce motion and spin length
   all live in their own settings page. Settings is organized into sections:
   squad sync, challenges, hero pool (with live active counts you can hide),

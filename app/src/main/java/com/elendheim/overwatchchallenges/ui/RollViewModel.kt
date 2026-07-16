@@ -3,6 +3,7 @@ package com.elendheim.overwatchchallenges.ui
 import android.app.Application
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Base64
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -191,12 +192,62 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    fun removeRule(packName: String, rule: CustomRule) {
+    fun updateRule(packName: String, oldRule: CustomRule, newText: String, newTag: String) {
+        val text = newText.trim()
+        if (text.isEmpty()) return
+        val tag = newTag.trim().ifEmpty { Intensity.CHAOS.label }
         savePacks(
             state.rulePacks.map { pack ->
-                if (pack.name == packName) pack.copy(rules = pack.rules - rule) else pack
+                if (pack.name != packName) pack
+                else pack.copy(rules = pack.rules.map { if (it == oldRule) CustomRule(text, tag) else it })
             }
         )
+    }
+
+    fun removeRules(packName: String, rules: Collection<CustomRule>) {
+        val doomed = rules.toSet()
+        savePacks(
+            state.rulePacks.map { pack ->
+                if (pack.name == packName) pack.copy(rules = pack.rules.filterNot { it in doomed }) else pack
+            }
+        )
+    }
+
+    /** A pack as a shareable code: paste it on a friend's phone, done. */
+    fun exportPack(name: String): String? {
+        val pack = state.rulePacks.firstOrNull { it.name == name } ?: return null
+        val rules = JSONArray()
+        pack.rules.forEach { rules.put(JSONObject().put("text", it.text).put("tag", it.tag)) }
+        val json = JSONObject().put("name", pack.name).put("rules", rules)
+        return PACK_CODE_PREFIX + Base64.encodeToString(
+            json.toString().toByteArray(Charsets.UTF_8),
+            Base64.NO_WRAP,
+        )
+    }
+
+    fun importPack(code: String): Boolean {
+        val trimmed = code.trim()
+        if (!trimmed.startsWith(PACK_CODE_PREFIX)) return false
+        return runCatching {
+            val decoded = String(
+                Base64.decode(trimmed.removePrefix(PACK_CODE_PREFIX), Base64.DEFAULT),
+                Charsets.UTF_8,
+            )
+            val json = JSONObject(decoded)
+            val rulesJson = json.getJSONArray("rules")
+            val rules = (0 until rulesJson.length()).map { i ->
+                val rule = rulesJson.getJSONObject(i)
+                CustomRule(rule.getString("text"), rule.optString("tag", Intensity.CHAOS.label))
+            }
+            var name = json.getString("name")
+            var counter = 2
+            while (state.rulePacks.any { it.name.equals(name, ignoreCase = true) }) {
+                name = "${json.getString("name")} ($counter)"
+                counter++
+            }
+            savePacks(state.rulePacks + RulePack(name, enabled = true, rules = rules))
+            true
+        }.getOrDefault(false)
     }
 
     private fun savePacks(packs: List<RulePack>) {
@@ -308,6 +359,7 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private companion object {
+        const val PACK_CODE_PREFIX = "ELNDPACK1:"
         const val KEY_DISABLED_HEROES = "disabled_heroes"
         const val KEY_MYSTERY = "mystery_enabled"
         const val KEY_NO_CHALLENGE = "no_challenge_mode"

@@ -1,5 +1,6 @@
 package com.elendheim.overwatchchallenges.ui
 
+import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -69,12 +70,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.elendheim.overwatchchallenges.data.Challenge
+import com.elendheim.overwatchchallenges.data.CustomRule
 import com.elendheim.overwatchchallenges.data.Hero
+import com.elendheim.overwatchchallenges.data.Intensity
 import com.elendheim.overwatchchallenges.data.PoolMode
 import com.elendheim.overwatchchallenges.data.Role
 import com.elendheim.overwatchchallenges.data.Roster
@@ -111,7 +115,11 @@ fun RollScreen(viewModel: RollViewModel) {
     var landedResult by remember { mutableStateOf(state.result) }
 
     BackHandler(enabled = settingsPage != null) {
-        settingsPage = if (settingsPage == "root") null else "root"
+        settingsPage = when {
+            settingsPage?.startsWith("pack:") == true -> "challenges"
+            settingsPage == "root" -> null
+            else -> "root"
+        }
     }
 
     val screenKey = when {
@@ -140,19 +148,31 @@ fun RollScreen(viewModel: RollViewModel) {
                     .fillMaxSize()
                     .padding(innerPadding),
             ) { screen ->
-                when (screen) {
-                    "settings:root" -> SettingsRoot(
+                when {
+                    screen == "settings:root" -> SettingsRoot(
                         state = state,
                         onOpen = { settingsPage = it },
                         onDone = { settingsPage = null },
                     )
 
-                    "settings:squad" -> SquadSettings(state, viewModel) { settingsPage = "root" }
-                    "settings:challenges" -> ChallengeSettings(state, viewModel) { settingsPage = "root" }
-                    "settings:heroes" -> HeroPoolSettings(state, viewModel) { settingsPage = "root" }
-                    "settings:access" -> AccessibilitySettings(state, viewModel) { settingsPage = "root" }
+                    screen.startsWith("settings:pack:") -> PackDetailSettings(
+                        state = state,
+                        viewModel = viewModel,
+                        packName = screen.removePrefix("settings:pack:"),
+                        onBack = { settingsPage = "challenges" },
+                    )
 
-                    "start" -> StartScreen(
+                    screen == "settings:squad" -> SquadSettings(state, viewModel) { settingsPage = "root" }
+                    screen == "settings:challenges" -> ChallengeSettings(
+                        state = state,
+                        viewModel = viewModel,
+                        onOpenPack = { settingsPage = "pack:$it" },
+                        onBack = { settingsPage = "root" },
+                    )
+                    screen == "settings:heroes" -> HeroPoolSettings(state, viewModel) { settingsPage = "root" }
+                    screen == "settings:access" -> AccessibilitySettings(state, viewModel) { settingsPage = "root" }
+
+                    screen == "start" -> StartScreen(
                         onRoll = viewModel::roll,
                         onSettings = { settingsPage = "root" },
                     )
@@ -727,7 +747,8 @@ private fun SettingsRoot(state: RollUiState, onOpen: (String) -> Unit, onDone: (
             Spacer(Modifier.height(8.dp))
             SettingsRow(
                 title = "Squad sync",
-                subtitle = if (state.squadSeed == null) "Rolling solo" else "Synced on \"${state.squadSeed}\"",
+                subtitle = "Experimental · " +
+                    if (state.squadSeed == null) "Rolling solo" else "Synced on \"${state.squadSeed}\"",
                 onClick = { onOpen("squad") },
             )
             SettingsRow(
@@ -754,7 +775,24 @@ private fun SettingsRoot(state: RollUiState, onOpen: (String) -> Unit, onDone: (
                 subtitle = "Text size, contrast and motion",
                 onClick = { onOpen("access") },
             )
-            Spacer(Modifier.height(20.dp))
+
+            Spacer(Modifier.height(24.dp))
+            val context = LocalContext.current
+            val versionName = remember {
+                runCatching {
+                    context.packageManager.getPackageInfo(context.packageName, 0).versionName
+                }.getOrNull()
+            }
+            Text(
+                text = "Elendheim Overwatch Challenges" +
+                    (versionName?.let { " v$it" } ?: ""),
+                style = MaterialTheme.typography.labelMedium,
+                color = muted,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 20.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
         }
     }
 }
@@ -772,6 +810,19 @@ private fun SquadSettings(state: RollUiState, viewModel: RollViewModel, onBack: 
                 .verticalScroll(rememberScrollState())
         ) {
             Spacer(Modifier.height(8.dp))
+            Text(
+                text = "EXPERIMENTAL",
+                style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp),
+                color = Ember,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "This hasn't been battle-tested with a real squad yet. If rolls drift " +
+                    "apart between phones, reroll from a fresh word.",
+                style = MaterialTheme.typography.bodySmall,
+                color = muted,
+            )
+            Spacer(Modifier.height(10.dp))
             Text(
                 text = "Everyone who enters the same word gets the same rolls, as long as " +
                     "filters, hero bans and packs match and you tap in the same order. " +
@@ -812,7 +863,12 @@ private fun SquadSettings(state: RollUiState, viewModel: RollViewModel, onBack: 
 }
 
 @Composable
-private fun ChallengeSettings(state: RollUiState, viewModel: RollViewModel, onBack: () -> Unit) {
+private fun ChallengeSettings(
+    state: RollUiState,
+    viewModel: RollViewModel,
+    onOpenPack: (String) -> Unit,
+    onBack: () -> Unit,
+) {
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         SettingsHeader("Challenges", "Back", onBack)
         Column(
@@ -861,7 +917,36 @@ private fun ChallengeSettings(state: RollUiState, viewModel: RollViewModel, onBa
 
             state.rulePacks.forEach { pack ->
                 Spacer(Modifier.height(10.dp))
-                PackCard(pack, viewModel)
+                Card(
+                    onClick = { onOpenPack(pack.name) },
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(pack.name, style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                text = "${pack.rules.size} rules",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = muted,
+                            )
+                        }
+                        Switch(
+                            checked = pack.enabled,
+                            onCheckedChange = { viewModel.togglePack(pack.name) },
+                        )
+                        Spacer(Modifier.height(0.dp))
+                        Text(
+                            text = "›",
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = muted,
+                            modifier = Modifier.padding(start = 10.dp),
+                        )
+                    }
+                }
             }
 
             Spacer(Modifier.height(14.dp))
@@ -882,42 +967,224 @@ private fun ChallengeSettings(state: RollUiState, viewModel: RollViewModel, onBa
                 enabled = newPackName.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Create pack") }
+
+            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            Text("Import a pack", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Paste a code someone shared from their pack page and it lands here " +
+                    "as a new pack.",
+                style = MaterialTheme.typography.bodySmall,
+                color = muted,
+            )
+            Spacer(Modifier.height(8.dp))
+            var importCode by remember { mutableStateOf("") }
+            var importFailed by remember { mutableStateOf(false) }
+            OutlinedTextField(
+                value = importCode,
+                onValueChange = {
+                    importCode = it
+                    importFailed = false
+                },
+                label = { Text("Pack code") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    importFailed = !viewModel.importPack(importCode)
+                    if (!importFailed) importCode = ""
+                },
+                enabled = importCode.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Import pack") }
+            if (importFailed) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Couldn't read that code.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
             Spacer(Modifier.height(20.dp))
         }
     }
 }
 
+/**
+ * One pack, full page: search it, edit rules in place, multi-select for
+ * mass deletion, and share the whole thing as a code.
+ */
 @Composable
-private fun PackCard(pack: RulePack, viewModel: RollViewModel) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(14.dp)) {
+private fun PackDetailSettings(
+    state: RollUiState,
+    viewModel: RollViewModel,
+    packName: String,
+    onBack: () -> Unit,
+) {
+    val pack = state.rulePacks.firstOrNull { it.name == packName }
+    if (pack == null) {
+        // pack got deleted under us; bail back to the list
+        LaunchedEffect(Unit) { onBack() }
+        return
+    }
+    val context = LocalContext.current
+    val allTags = remember(state.rulePacks) {
+        (listOf(Intensity.WARMUP.label, Intensity.CHAOS.label) +
+            state.rulePacks.flatMap { p -> p.rules.map { it.tag } })
+            .distinctBy { it.lowercase() }
+    }
+
+    var query by remember { mutableStateOf("") }
+    var selecting by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf(setOf<String>()) }
+    var editingRule by remember { mutableStateOf<String?>(null) }
+
+    val distinctTags = pack.rules.map { it.tag }.distinctBy { it.lowercase() }
+    val searchable = pack.rules.size > 3 || distinctTags.size > 3
+    val visibleRules = pack.rules.filter {
+        query.isBlank() || it.text.contains(query, true) || it.tag.contains(query, true)
+    }
+
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        SettingsHeader(pack.name, "Back", onBack)
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = pack.name,
+                    text = "Enabled",
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f),
                 )
                 Switch(checked = pack.enabled, onCheckedChange = { viewModel.togglePack(pack.name) })
             }
 
-            pack.rules.forEach { rule ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(rule.text, style = MaterialTheme.typography.bodyMedium)
-                        Text(rule.tag, style = MaterialTheme.typography.labelSmall, color = muted)
-                    }
-                    TextButton(onClick = { viewModel.removeRule(pack.name, rule) }) {
-                        Text("Remove")
-                    }
-                }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        viewModel.exportPack(pack.name)?.let { code ->
+                            val send = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, code)
+                            }
+                            context.startActivity(Intent.createChooser(send, "Share pack"))
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                ) { Text("Share pack") }
+                OutlinedButton(
+                    onClick = {
+                        selecting = !selecting
+                        selected = emptySet()
+                        editingRule = null
+                    },
+                    enabled = pack.rules.isNotEmpty(),
+                    modifier = Modifier.weight(1f),
+                ) { Text(if (selecting) "Cancel" else "Select") }
+            }
+
+            if (selecting) {
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        viewModel.removeRules(pack.name, pack.rules.filter { it.text in selected })
+                        selecting = false
+                        selected = emptySet()
+                    },
+                    enabled = selected.isNotEmpty(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Delete ${selected.size} selected") }
+            }
+
+            if (searchable) {
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Search rules and tags") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
 
             Spacer(Modifier.height(6.dp))
-            var ruleText by remember(pack.name) { mutableStateOf("") }
-            var ruleTag by remember(pack.name) { mutableStateOf("") }
+            visibleRules.forEach { rule ->
+                key(rule.text) {
+                    if (editingRule == rule.text) {
+                        Spacer(Modifier.height(6.dp))
+                        RuleEditor(
+                            rule = rule,
+                            allTags = allTags,
+                            onSave = { text, tag ->
+                                viewModel.updateRule(pack.name, rule, text, tag)
+                                editingRule = null
+                            },
+                            onDelete = {
+                                viewModel.removeRules(pack.name, listOf(rule))
+                                editingRule = null
+                            },
+                            onCancel = { editingRule = null },
+                        )
+                        Spacer(Modifier.height(6.dp))
+                    } else {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = selecting) {
+                                    selected = if (rule.text in selected) {
+                                        selected - rule.text
+                                    } else {
+                                        selected + rule.text
+                                    }
+                                }
+                                .padding(vertical = 6.dp),
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(rule.text, style = MaterialTheme.typography.bodyMedium)
+                                Text(rule.tag, style = MaterialTheme.typography.labelSmall, color = muted)
+                            }
+                            if (selecting) {
+                                Text(
+                                    text = if (rule.text in selected) "Selected" else "Tap to select",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (rule.text in selected) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        muted
+                                    },
+                                )
+                            } else {
+                                TextButton(onClick = { editingRule = rule.text }) { Text("Edit") }
+                            }
+                        }
+                    }
+                }
+            }
+            if (pack.rules.isNotEmpty() && visibleRules.isEmpty()) {
+                Text(
+                    text = "Nothing matches \"$query\".",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = muted,
+                )
+            }
+
+            HorizontalDivider(Modifier.padding(vertical = 14.dp))
+            Text("Add a rule", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(6.dp))
+            var ruleText by remember { mutableStateOf("") }
+            var ruleTag by remember { mutableStateOf("") }
+            var showTagPicker by remember { mutableStateOf(false) }
             OutlinedTextField(
                 value = ruleText,
                 onValueChange = { ruleText = it },
@@ -925,28 +1192,138 @@ private fun PackCard(pack: RulePack, viewModel: RollViewModel) {
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = ruleTag,
+                    onValueChange = { ruleTag = it },
+                    label = { Text("Tag") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedButton(
+                    onClick = { showTagPicker = !showTagPicker },
+                    modifier = Modifier.padding(start = 8.dp),
+                ) { Text(if (showTagPicker) "×" else "+") }
+            }
+            if (showTagPicker) {
+                Spacer(Modifier.height(6.dp))
+                TagPicker(allTags = allTags) { tag ->
+                    ruleTag = tag
+                    showTagPicker = false
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    viewModel.addRule(pack.name, ruleText, ruleTag)
+                    ruleText = ""
+                    ruleTag = ""
+                },
+                enabled = ruleText.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Add rule") }
+
+            Spacer(Modifier.height(14.dp))
+            TextButton(
+                onClick = {
+                    viewModel.deletePack(pack.name)
+                    onBack()
+                },
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            ) {
+                Text("Delete pack", color = MaterialTheme.colorScheme.error)
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun RuleEditor(
+    rule: CustomRule,
+    allTags: List<String>,
+    onSave: (String, String) -> Unit,
+    onDelete: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    var text by remember { mutableStateOf(rule.text) }
+    var tag by remember { mutableStateOf(rule.tag) }
+    var showTagPicker by remember { mutableStateOf(false) }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp)) {
             OutlinedTextField(
-                value = ruleTag,
-                onValueChange = { ruleTag = it },
-                label = { Text("Tag: Warmup, Chaos or your own") },
+                value = text,
+                onValueChange = { text = it },
+                label = { Text("Constraint") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = tag,
+                    onValueChange = { tag = it },
+                    label = { Text("Tag") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedButton(
+                    onClick = { showTagPicker = !showTagPicker },
+                    modifier = Modifier.padding(start = 8.dp),
+                ) { Text(if (showTagPicker) "×" else "+") }
+            }
+            if (showTagPicker) {
+                Spacer(Modifier.height(6.dp))
+                TagPicker(allTags = allTags) { picked ->
+                    tag = picked
+                    showTagPicker = false
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { onSave(text, tag) },
+                    enabled = text.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                ) { Text("Save") }
+                TextButton(onClick = onDelete) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+                TextButton(onClick = onCancel) { Text("Cancel") }
+            }
+        }
+    }
+}
+
+/** Existing tags, tappable. More than three and you get a search bar. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TagPicker(allTags: List<String>, onPick: (String) -> Unit) {
+    var tagQuery by remember { mutableStateOf("") }
+    Column {
+        if (allTags.size > 3) {
+            OutlinedTextField(
+                value = tagQuery,
+                onValueChange = { tagQuery = it },
+                label = { Text("Search tags") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(
-                    onClick = {
-                        viewModel.addRule(pack.name, ruleText, ruleTag)
-                        ruleText = ""
-                        ruleTag = ""
-                    },
-                    enabled = ruleText.isNotBlank(),
-                    modifier = Modifier.weight(1f),
-                ) { Text("Add rule") }
-                TextButton(onClick = { viewModel.deletePack(pack.name) }) {
-                    Text("Delete pack")
+            Spacer(Modifier.height(6.dp))
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            allTags
+                .filter { tagQuery.isBlank() || it.contains(tagQuery, true) }
+                .forEach { tag ->
+                    FilterChip(
+                        selected = false,
+                        onClick = { onPick(tag) },
+                        label = { Text(tag) },
+                    )
                 }
-            }
         }
     }
 }
