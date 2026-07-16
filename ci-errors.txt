@@ -1,0 +1,18 @@
+e: The daemon has terminated unexpectedly on startup attempt #1 with error code: 0. The daemon process output:
+e: file:///home/runner/work/Elendheim-Overwatch-Challenges/Elendheim-Overwatch-Challenges/app/src/main/java/com/elendheim/overwatchchallenges/ui/RollViewModel.kt:86:88 Unresolved reference 'KEY_REEL_DENSITY'.
+e: file:///home/runner/work/Elendheim-Overwatch-Challenges/Elendheim-Overwatch-Challenges/app/src/main/java/com/elendheim/overwatchchallenges/ui/RollViewModel.kt:88:84 Unresolved reference 'KEY_REEL_COLOR'.
+e: file:///home/runner/work/Elendheim-Overwatch-Challenges/Elendheim-Overwatch-Challenges/app/src/main/java/com/elendheim/overwatchchallenges/ui/RollViewModel.kt:90:49 Unresolved reference 'KEY_OVERSHOOT'.
+e: file:///home/runner/work/Elendheim-Overwatch-Challenges/Elendheim-Overwatch-Challenges/app/src/main/java/com/elendheim/overwatchchallenges/ui/RollViewModel.kt:91:48 Unresolved reference 'KEY_SUSPENSE'.
+e: file:///home/runner/work/Elendheim-Overwatch-Challenges/Elendheim-Overwatch-Challenges/app/src/main/java/com/elendheim/overwatchchallenges/ui/RollViewModel.kt:189:32 Unresolved reference 'KEY_REEL_DENSITY'.
+e: file:///home/runner/work/Elendheim-Overwatch-Challenges/Elendheim-Overwatch-Challenges/app/src/main/java/com/elendheim/overwatchchallenges/ui/RollViewModel.kt:194:32 Unresolved reference 'KEY_REEL_COLOR'.
+e: file:///home/runner/work/Elendheim-Overwatch-Challenges/Elendheim-Overwatch-Challenges/app/src/main/java/com/elendheim/overwatchchallenges/ui/RollViewModel.kt:200:33 Unresolved reference 'KEY_OVERSHOOT'.
+e: file:///home/runner/work/Elendheim-Overwatch-Challenges/Elendheim-Overwatch-Challenges/app/src/main/java/com/elendheim/overwatchchallenges/ui/RollViewModel.kt:206:33 Unresolved reference 'KEY_SUSPENSE'.
+e: file:///home/runner/work/Elendheim-Overwatch-Challenges/Elendheim-Overwatch-Challenges/app/src/main/java/com/elendheim/overwatchchallenges/ui/RollViewModel.kt:86:88 Unresolved reference 'KEY_REEL_DENSITY'.
+e: file:///home/runner/work/Elendheim-Overwatch-Challenges/Elendheim-Overwatch-Challenges/app/src/main/java/com/elendheim/overwatchchallenges/ui/RollViewModel.kt:88:84 Unresolved reference 'KEY_REEL_COLOR'.
+e: file:///home/runner/work/Elendheim-Overwatch-Challenges/Elendheim-Overwatch-Challenges/app/src/main/java/com/elendheim/overwatchchallenges/ui/RollViewModel.kt:90:49 Unresolved reference 'KEY_OVERSHOOT'.
+e: file:///home/runner/work/Elendheim-Overwatch-Challenges/Elendheim-Overwatch-Challenges/app/src/main/java/com/elendheim/overwatchchallenges/ui/RollViewModel.kt:91:48 Unresolved reference 'KEY_SUSPENSE'.
+e: file:///home/runner/work/Elendheim-Overwatch-Challenges/Elendheim-Overwatch-Challenges/app/src/main/java/com/elendheim/overwatchchallenges/ui/RollViewModel.kt:189:32 Unresolved reference 'KEY_REEL_DENSITY'.
+e: file:///home/runner/work/Elendheim-Overwatch-Challenges/Elendheim-Overwatch-Challenges/app/src/main/java/com/elendheim/overwatchchallenges/ui/RollViewModel.kt:194:32 Unresolved reference 'KEY_REEL_COLOR'.
+e: file:///home/runner/work/Elendheim-Overwatch-Challenges/Elendheim-Overwatch-Challenges/app/src/main/java/com/elendheim/overwatchchallenges/ui/RollViewModel.kt:200:33 Unresolved reference 'KEY_OVERSHOOT'.
+e: file:///home/runner/work/Elendheim-Overwatch-Challenges/Elendheim-Overwatch-Challenges/app/src/main/java/com/elendheim/overwatchchallenges/ui/RollViewModel.kt:206:33 Unresolved reference 'KEY_SUSPENSE'.
+FAILURE: Build completed with 2 failures.
