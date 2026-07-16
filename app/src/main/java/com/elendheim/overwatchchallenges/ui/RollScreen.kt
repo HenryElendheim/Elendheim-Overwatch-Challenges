@@ -177,7 +177,7 @@ fun RollScreen(viewModel: RollViewModel) {
                         onSettings = { settingsPage = "root" },
                     )
 
-                    "spin" -> SpinScreen(
+                    screen == "spin" -> SpinScreen(
                         state = state,
                         onLanded = {
                             landedResult = state.result
