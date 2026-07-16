@@ -455,6 +455,10 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         const val KEY_HIGH_CONTRAST = "high_contrast"
         const val KEY_REDUCE_MOTION = "reduce_motion"
         const val KEY_SPIN_SECONDS = "spin_seconds"
+        const val KEY_REEL_DENSITY = "reel_density"
+        const val KEY_REEL_COLOR = "reel_color"
+        const val KEY_OVERSHOOT = "overshoot_enabled"
+        const val KEY_SUSPENSE = "suspense_enabled"
 
         fun loadPacks(prefs: SharedPreferences): List<RulePack> {
             val raw = prefs.getString(KEY_RULE_PACKS, null)
