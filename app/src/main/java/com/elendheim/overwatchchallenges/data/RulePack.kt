@@ -10,11 +10,16 @@ data class CustomRule(val text: String, val tag: String)
 /**
  * A named, toggleable bundle of custom rules. Packs can run alongside the
  * standard pool, replace it entirely, or sit disabled until game night.
+ *
+ * The code is the pack's permanent identity: generated once, never reused,
+ * kept through exports and imports, and enough to summon the pack back from
+ * the archive by typing it.
  */
 data class RulePack(
     val name: String,
     val enabled: Boolean,
     val rules: List<CustomRule>,
+    val code: String = "",
 )
 
 fun RulePack.toChallenges(): List<Challenge> = rules.map { rule ->

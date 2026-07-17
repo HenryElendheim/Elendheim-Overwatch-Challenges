@@ -17,6 +17,7 @@ import com.elendheim.overwatchchallenges.data.RulePack
 import com.elendheim.overwatchchallenges.data.toChallenges
 import com.elendheim.overwatchchallenges.engine.RollEngine
 import com.elendheim.overwatchchallenges.engine.RollResult
+import kotlin.random.Random
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -94,6 +95,19 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         private set
 
     private var engine = RollEngine()
+
+    init {
+        // packs from before codes existed get one on first launch
+        if (state.rulePacks.any { it.code.isBlank() }) {
+            val taken = allKnownCodes().toMutableSet()
+            savePacks(
+                state.rulePacks.map { pack ->
+                    if (pack.code.isNotBlank()) pack
+                    else pack.copy(code = newCode(taken).also { taken += it })
+                }
+            )
+        }
+    }
 
     private fun packExtras(): List<Challenge> =
         state.rulePacks.filter { it.enabled }.flatMap { it.toChallenges() }
@@ -213,7 +227,10 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         val clean = name.trim()
         if (clean.isEmpty()) return
         if (state.rulePacks.any { it.name.equals(clean, ignoreCase = true) }) return
-        savePacks(state.rulePacks + RulePack(clean, enabled = true, rules = emptyList()))
+        savePacks(
+            state.rulePacks +
+                RulePack(clean, enabled = true, rules = emptyList(), code = generatePackCode())
+        )
     }
 
     fun deletePack(name: String) {
@@ -261,7 +278,7 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
     private fun packJson(pack: RulePack): JSONObject {
         val rules = JSONArray()
         pack.rules.forEach { rules.put(JSONObject().put("text", it.text).put("tag", it.tag)) }
-        return JSONObject().put("name", pack.name).put("rules", rules)
+        return JSONObject().put("name", pack.name).put("code", pack.code).put("rules", rules)
     }
 
     /** A pack as a shareable code: paste it on a friend's phone, done. */
@@ -285,6 +302,8 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         return buildString {
             appendLine("# ${pack.name}")
             appendLine()
+            appendLine("Code: ${pack.code}")
+            appendLine()
             appendLine("An Elendheim Overwatch Challenges rule pack, ${pack.rules.size} rules.")
             appendLine()
             pack.rules.forEach { rule ->
@@ -297,9 +316,13 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Takes a share code, a raw JSON export, or a markdown file containing the code. */
+    /**
+     * Takes a short pack code (looked up from this phone's archive), a share
+     * code, a raw JSON export, or a markdown file containing the code.
+     */
     fun importPack(code: String): Boolean {
         val trimmed = code.trim()
+        if (trimmed.matches(SHORT_CODE)) return importPackByCode(trimmed)
         val decoded = when {
             trimmed.startsWith(PACK_CODE_PREFIX) -> decodeCode(trimmed) ?: return false
             trimmed.startsWith("{") -> trimmed
@@ -316,15 +339,42 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
                 val rule = rulesJson.getJSONObject(i)
                 CustomRule(rule.getString("text"), rule.optString("tag", Intensity.CHAOS.label))
             }
+            val incomingCode = json.optString("code", "").trim().uppercase()
+            val packCode = if (incomingCode.matches(SHORT_CODE)) incomingCode else generatePackCode()
+            // same code = same pack: a re-import refreshes it instead of duplicating
+            val existing = state.rulePacks.firstOrNull { it.code == packCode }
+            if (existing != null) {
+                savePacks(
+                    state.rulePacks.map {
+                        if (it.code == packCode) it.copy(rules = rules, enabled = true) else it
+                    }
+                )
+                return@runCatching true
+            }
             var name = json.getString("name")
             var counter = 2
             while (state.rulePacks.any { it.name.equals(name, ignoreCase = true) }) {
                 name = "${json.getString("name")} ($counter)"
                 counter++
             }
-            savePacks(state.rulePacks + RulePack(name, enabled = true, rules = rules))
+            savePacks(state.rulePacks + RulePack(name, enabled = true, rules = rules, code = packCode))
             true
         }.getOrDefault(false)
+    }
+
+    /** The archive remembers every pack this phone has ever had; a code brings it back. */
+    private fun importPackByCode(input: String): Boolean {
+        val code = input.trim().uppercase()
+        if (state.rulePacks.any { it.code == code }) return true
+        val archived = loadArchive().firstOrNull { it.code == code } ?: return false
+        var name = archived.name
+        var counter = 2
+        while (state.rulePacks.any { it.name.equals(name, ignoreCase = true) }) {
+            name = "${archived.name} ($counter)"
+            counter++
+        }
+        savePacks(state.rulePacks + archived.copy(name = name, enabled = true))
+        return true
     }
 
     private fun decodeCode(code: String): String? = runCatching {
@@ -335,22 +385,29 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
     }.getOrNull()
 
     private fun savePacks(packs: List<RulePack>) {
-        val json = JSONArray()
-        packs.forEach { pack ->
-            val rules = JSONArray()
-            pack.rules.forEach { rule ->
-                rules.put(JSONObject().put("text", rule.text).put("tag", rule.tag))
-            }
-            json.put(
-                JSONObject()
-                    .put("name", pack.name)
-                    .put("enabled", pack.enabled)
-                    .put("rules", rules)
-            )
+        prefs.edit().putString(KEY_RULE_PACKS, serializePacks(packs)).apply()
+        // the archive only grows: every pack ever seen stays findable by code,
+        // even after it's deleted from the active list
+        val archive = loadArchive().toMutableList()
+        packs.filter { it.code.isNotBlank() }.forEach { pack ->
+            val index = archive.indexOfFirst { it.code == pack.code }
+            if (index >= 0) archive[index] = pack else archive.add(pack)
         }
-        prefs.edit().putString(KEY_RULE_PACKS, json.toString()).apply()
+        prefs.edit().putString(KEY_PACK_ARCHIVE, serializePacks(archive)).apply()
         state = state.copy(rulePacks = packs)
     }
+
+    private fun loadArchive(): List<RulePack> =
+        prefs.getString(KEY_PACK_ARCHIVE, null)
+            ?.let { runCatching { parsePacks(it) }.getOrDefault(emptyList()) }
+            .orEmpty()
+
+    private fun allKnownCodes(): Set<String> =
+        (state.rulePacks.map { it.code } + loadArchive().map { it.code })
+            .filter { it.isNotBlank() }
+            .toSet()
+
+    private fun generatePackCode(): String = newCode(allKnownCodes())
 
     // the loop
 
@@ -444,7 +501,38 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
 
     private companion object {
         const val PACK_CODE_PREFIX = "ELNDPACK1:"
+        val SHORT_CODE = Regex("^[A-Za-z0-9]{4,8}$")
+        // no lookalike characters, so codes survive being read out loud
+        const val CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+        const val KEY_PACK_ARCHIVE = "pack_archive"
         const val KEY_DISABLED_HEROES = "disabled_heroes"
+
+        fun newCode(taken: Set<String>): String {
+            while (true) {
+                val code = buildString {
+                    repeat(6) { append(CODE_CHARS[Random.nextInt(CODE_CHARS.length)]) }
+                }
+                if (code !in taken) return code
+            }
+        }
+
+        fun serializePacks(packs: List<RulePack>): String {
+            val json = JSONArray()
+            packs.forEach { pack ->
+                val rules = JSONArray()
+                pack.rules.forEach { rule ->
+                    rules.put(JSONObject().put("text", rule.text).put("tag", rule.tag))
+                }
+                json.put(
+                    JSONObject()
+                        .put("name", pack.name)
+                        .put("code", pack.code)
+                        .put("enabled", pack.enabled)
+                        .put("rules", rules)
+                )
+            }
+            return json.toString()
+        }
         const val KEY_MYSTERY = "mystery_enabled"
         const val KEY_NO_CHALLENGE = "no_challenge_mode"
         const val KEY_CUSTOM_CHALLENGES = "custom_challenges"
@@ -495,6 +583,7 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
                         val rule = rulesJson.getJSONObject(j)
                         CustomRule(rule.getString("text"), rule.optString("tag", Intensity.CHAOS.label))
                     },
+                    code = pack.optString("code", ""),
                 )
             }
         }

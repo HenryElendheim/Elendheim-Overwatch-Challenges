@@ -34,11 +34,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -78,6 +80,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.elendheim.overwatchchallenges.data.Challenge
+import com.elendheim.overwatchchallenges.data.ChallengePool
 import com.elendheim.overwatchchallenges.data.CustomRule
 import com.elendheim.overwatchchallenges.data.Hero
 import com.elendheim.overwatchchallenges.data.Intensity
@@ -119,6 +122,7 @@ fun RollScreen(viewModel: RollViewModel) {
     BackHandler(enabled = settingsPage != null) {
         settingsPage = when {
             settingsPage?.startsWith("pack:") == true -> "challenges"
+            settingsPage == "standardpack" -> "challenges"
             settingsPage == "root" -> null
             else -> "root"
         }
@@ -164,11 +168,18 @@ fun RollScreen(viewModel: RollViewModel) {
                         onBack = { settingsPage = "challenges" },
                     )
 
+                    screen == "settings:standardpack" -> StandardPackSettings(
+                        state = state,
+                        viewModel = viewModel,
+                        onBack = { settingsPage = "challenges" },
+                    )
+
                     screen == "settings:squad" -> SquadSettings(state, viewModel) { settingsPage = "root" }
                     screen == "settings:challenges" -> ChallengeSettings(
                         state = state,
                         viewModel = viewModel,
                         onOpenPack = { settingsPage = "pack:$it" },
+                        onOpenStandard = { settingsPage = "standardpack" },
                         onBack = { settingsPage = "root" },
                     )
                     screen == "settings:heroes" -> HeroPoolSettings(state, viewModel) { settingsPage = "root" }
@@ -829,6 +840,7 @@ private fun SquadSettings(state: RollUiState, viewModel: RollViewModel, onBack: 
                 .fillMaxWidth()
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
+                .imePadding()
         ) {
             Spacer(Modifier.height(8.dp))
             Text(
@@ -888,6 +900,7 @@ private fun ChallengeSettings(
     state: RollUiState,
     viewModel: RollViewModel,
     onOpenPack: (String) -> Unit,
+    onOpenStandard: () -> Unit,
     onBack: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
@@ -897,16 +910,9 @@ private fun ChallengeSettings(
                 .fillMaxWidth()
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
+                .imePadding()
         ) {
             Spacer(Modifier.height(8.dp))
-            SwitchRow(
-                title = "Standard challenges",
-                description = "The built-in pool. Turn it off to run purely on your own packs.",
-                checked = state.standardEnabled,
-                onToggle = viewModel::toggleStandard,
-            )
-
-            HorizontalDivider(Modifier.padding(vertical = 16.dp))
             SwitchRow(
                 title = "??? rolls",
                 description = "About one roll in fifty comes up as a wildcard: no hero, just a " +
@@ -931,10 +937,42 @@ private fun ChallengeSettings(
             Text(
                 text = "Bundle your own constraints into packs and flip them on per session. " +
                     "Tag rules Warmup or Chaos to join those pools, or use any tag you like - " +
-                    "custom tags only roll in Mixed.",
+                    "custom tags only roll in Mixed. Every pack has a code that can bring " +
+                    "it back through import.",
                 style = MaterialTheme.typography.bodySmall,
                 color = muted,
             )
+
+            Spacer(Modifier.height(10.dp))
+            Card(
+                onClick = onOpenStandard,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Standard challenges", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            text = "${ChallengePool.all.size} rules built in",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = muted,
+                        )
+                    }
+                    Switch(
+                        checked = state.standardEnabled,
+                        onCheckedChange = { viewModel.toggleStandard() },
+                    )
+                    Text(
+                        text = "›",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = muted,
+                        modifier = Modifier.padding(start = 10.dp),
+                    )
+                }
+            }
 
             state.rulePacks.forEach { pack ->
                 Spacer(Modifier.height(10.dp))
@@ -948,7 +986,15 @@ private fun ChallengeSettings(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text(pack.name, style = MaterialTheme.typography.titleMedium)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(pack.name, style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    text = pack.code,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = Ember,
+                                    modifier = Modifier.padding(start = 8.dp),
+                                )
+                            }
                             Text(
                                 text = "${pack.rules.size} rules",
                                 style = MaterialTheme.typography.bodySmall,
@@ -959,7 +1005,6 @@ private fun ChallengeSettings(
                             checked = pack.enabled,
                             onCheckedChange = { viewModel.togglePack(pack.name) },
                         )
-                        Spacer(Modifier.height(0.dp))
                         Text(
                             text = "›",
                             style = MaterialTheme.typography.headlineSmall,
@@ -993,8 +1038,9 @@ private fun ChallengeSettings(
             Text("Import a pack", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "Paste a shared code, or pick a JSON or text file someone saved " +
-                    "from their pack page. Either way it lands here as a new pack.",
+                text = "Type a short pack code (like XQCW42), paste a shared code, or pick " +
+                    "a saved JSON or text file. Short codes bring back any pack this phone " +
+                    "has ever had, even deleted ones.",
                 style = MaterialTheme.typography.bodySmall,
                 color = muted,
             )
@@ -1089,6 +1135,9 @@ private fun PackDetailSettings(
         query.isBlank() || it.text.contains(query, true) || it.tag.contains(query, true)
     }
 
+    var confirmDeletePack by remember { mutableStateOf(false) }
+    var confirmDeleteSelected by remember { mutableStateOf(false) }
+
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         SettingsHeader(pack.name, "Back", onBack)
         Column(
@@ -1096,7 +1145,13 @@ private fun PackDetailSettings(
                 .fillMaxWidth()
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
+                .imePadding()
         ) {
+            Text(
+                text = "Code: ${pack.code}",
+                style = MaterialTheme.typography.labelLarge,
+                color = Ember,
+            )
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -1166,11 +1221,7 @@ private fun PackDetailSettings(
             if (selecting) {
                 Spacer(Modifier.height(8.dp))
                 Button(
-                    onClick = {
-                        viewModel.removeRules(pack.name, pack.rules.filter { it.text in selected })
-                        selecting = false
-                        selected = emptySet()
-                    },
+                    onClick = { confirmDeleteSelected = true },
                     enabled = selected.isNotEmpty(),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error,
@@ -1299,15 +1350,131 @@ private fun PackDetailSettings(
 
             Spacer(Modifier.height(14.dp))
             TextButton(
-                onClick = {
-                    viewModel.deletePack(pack.name)
-                    onBack()
-                },
+                onClick = { confirmDeletePack = true },
                 modifier = Modifier.align(Alignment.CenterHorizontally),
             ) {
                 Text("Delete pack", color = MaterialTheme.colorScheme.error)
             }
             Spacer(Modifier.height(16.dp))
+        }
+    }
+
+    if (confirmDeleteSelected) {
+        AlertDialog(
+            onDismissRequest = { confirmDeleteSelected = false },
+            title = { Text("Delete ${selected.size} ${if (selected.size == 1) "rule" else "rules"}?") },
+            text = { Text("They come off the pack right away.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.removeRules(pack.name, pack.rules.filter { it.text in selected })
+                        selecting = false
+                        selected = emptySet()
+                        confirmDeleteSelected = false
+                    },
+                ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteSelected = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    if (confirmDeletePack) {
+        AlertDialog(
+            onDismissRequest = { confirmDeletePack = false },
+            title = { Text("Delete \"${pack.name}\"?") },
+            text = {
+                Text(
+                    "The pack leaves your list, but its code ${pack.code} stays reserved. " +
+                        "Typing it under Import brings the pack back."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDeletePack = false
+                        viewModel.deletePack(pack.name)
+                        onBack()
+                    },
+                ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeletePack = false }) { Text("Cancel") }
+            },
+        )
+    }
+}
+
+/** The built-in pool, browsable like any other pack. Read-only by design. */
+@Composable
+private fun StandardPackSettings(
+    state: RollUiState,
+    viewModel: RollViewModel,
+    onBack: () -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    val visible = ChallengePool.all.filter {
+        query.isBlank() || it.text.contains(query, true) ||
+            it.category.label.contains(query, true) || it.intensity.label.contains(query, true)
+    }
+
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        SettingsHeader("Standard challenges", "Back", onBack)
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .imePadding()
+        ) {
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Enabled",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(
+                    checked = state.standardEnabled,
+                    onCheckedChange = { viewModel.toggleStandard() },
+                )
+            }
+            Text(
+                text = "The built-in pool, ${ChallengePool.all.size} rules. It can't be " +
+                    "edited, only benched, so your packs can run the show.",
+                style = MaterialTheme.typography.bodySmall,
+                color = muted,
+            )
+
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = { Text("Search rules") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            Spacer(Modifier.height(6.dp))
+            visible.forEach { challenge ->
+                Column(Modifier.padding(vertical = 6.dp)) {
+                    Text(challenge.text, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        text = "${challenge.category.label} · ${challenge.intensity.label}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = muted,
+                    )
+                }
+            }
+            if (visible.isEmpty()) {
+                Text(
+                    text = "Nothing matches \"$query\".",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = muted,
+                )
+            }
+            Spacer(Modifier.height(20.dp))
         }
     }
 }

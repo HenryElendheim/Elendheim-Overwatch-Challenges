@@ -43,7 +43,10 @@ queue.
   so you can run built-ins, packs, or both. Each pack has its own page with
   search, in-place editing, multi-select deletion, and a share code you can
   send to friends, who import it with a paste. Packs also save as JSON or
-  markdown files and import back from either.
+  markdown files and import back from either. Every pack carries a short
+  permanent code, shown next to its name; typing the code re-imports any
+  pack this phone has ever had, deleted ones included. The standard pool
+  sits at the top of the pack list and can be browsed like any other pack.
 - **Spin settings**: length, suspense spins, overshoot, reel density and
   name colors all have their own page.
 - **Accessibility**: text size, high contrast, reduce motion and spin length
