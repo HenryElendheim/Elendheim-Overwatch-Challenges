@@ -42,6 +42,12 @@ enum class ReelColor(val label: String) {
     WHITE("White"),
 }
 
+enum class ArrowSize(val label: String, val sizeDp: Int) {
+    SMALL("Small", 18),
+    MEDIUM("Medium", 26),
+    LARGE("Large", 36),
+}
+
 data class RollUiState(
     val roleFilter: Role? = null,
     val poolMode: PoolMode = PoolMode.MIXED,
@@ -65,6 +71,9 @@ data class RollUiState(
     val reelColor: ReelColor = ReelColor.ROLE,
     val overshootEnabled: Boolean = true,
     val suspenseEnabled: Boolean = true,
+    val landingArrow: Boolean = true,
+    val arrowSize: ArrowSize = ArrowSize.MEDIUM,
+    val landingUnderline: Boolean = false,
 )
 
 class RollViewModel(application: Application) : AndroidViewModel(application) {
@@ -90,6 +99,10 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
                 ?: ReelColor.ROLE,
             overshootEnabled = prefs.getBoolean(KEY_OVERSHOOT, true),
             suspenseEnabled = prefs.getBoolean(KEY_SUSPENSE, true),
+            landingArrow = prefs.getBoolean(KEY_LANDING_ARROW, true),
+            arrowSize = ArrowSize.entries.firstOrNull { it.name == prefs.getString(KEY_ARROW_SIZE, null) }
+                ?: ArrowSize.MEDIUM,
+            landingUnderline = prefs.getBoolean(KEY_LANDING_UNDERLINE, false),
         )
     )
         private set
@@ -219,6 +232,23 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         val on = !state.suspenseEnabled
         prefs.edit().putBoolean(KEY_SUSPENSE, on).apply()
         state = state.copy(suspenseEnabled = on)
+    }
+
+    fun toggleLandingArrow() {
+        val on = !state.landingArrow
+        prefs.edit().putBoolean(KEY_LANDING_ARROW, on).apply()
+        state = state.copy(landingArrow = on)
+    }
+
+    fun setArrowSize(size: ArrowSize) {
+        prefs.edit().putString(KEY_ARROW_SIZE, size.name).apply()
+        state = state.copy(arrowSize = size)
+    }
+
+    fun toggleLandingUnderline() {
+        val on = !state.landingUnderline
+        prefs.edit().putBoolean(KEY_LANDING_UNDERLINE, on).apply()
+        state = state.copy(landingUnderline = on)
     }
 
     // rule packs
@@ -547,6 +577,9 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         const val KEY_REEL_COLOR = "reel_color"
         const val KEY_OVERSHOOT = "overshoot_enabled"
         const val KEY_SUSPENSE = "suspense_enabled"
+        const val KEY_LANDING_ARROW = "landing_arrow"
+        const val KEY_ARROW_SIZE = "arrow_size"
+        const val KEY_LANDING_UNDERLINE = "landing_underline"
 
         fun loadPacks(prefs: SharedPreferences): List<RulePack> {
             val raw = prefs.getString(KEY_RULE_PACKS, null)

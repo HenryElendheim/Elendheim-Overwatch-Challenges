@@ -21,6 +21,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -35,10 +36,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -73,6 +76,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -412,6 +417,33 @@ private fun SpinScreen(state: RollUiState, onLanded: () -> Unit) {
                         scaleX = scale
                         scaleY = scale
                     },
+            )
+        }
+
+        // the landing line markers sit still while the reel flies past them
+        if (state.landingArrow) {
+            Canvas(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 16.dp)
+                    .size(state.arrowSize.sizeDp.dp),
+            ) {
+                val path = Path().apply {
+                    moveTo(size.width, 0f)
+                    lineTo(size.width, size.height)
+                    lineTo(0f, size.height / 2f)
+                    close()
+                }
+                drawPath(path, Color.White)
+            }
+        }
+        if (state.landingUnderline) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .offset(y = 30.dp)
+                    .size(width = 190.dp, height = 3.dp)
+                    .background(Color.White, RoundedCornerShape(2.dp)),
             )
         }
     }
@@ -1764,6 +1796,38 @@ private fun SpinSettings(state: RollUiState, viewModel: RollViewModel, onBack: (
                     "slot-machine style.",
                 checked = state.overshootEnabled,
                 onToggle = viewModel::toggleOvershoot,
+            )
+
+            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            SwitchRow(
+                title = "Landing arrow",
+                description = "A white arrow at the landing line so you can see exactly " +
+                    "where the reel will stop.",
+                checked = state.landingArrow,
+                onToggle = viewModel::toggleLandingArrow,
+            )
+            Spacer(Modifier.height(10.dp))
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                ArrowSize.entries.forEachIndexed { index, size ->
+                    SegmentedButton(
+                        selected = state.arrowSize == size,
+                        onClick = { viewModel.setArrowSize(size) },
+                        enabled = state.landingArrow,
+                        shape = SegmentedButtonDefaults.itemShape(
+                            index = index,
+                            count = ArrowSize.entries.size,
+                        ),
+                    ) { Text(size.label) }
+                }
+            }
+
+            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            SwitchRow(
+                title = "Underline the landing name",
+                description = "A thin line under whichever name is crossing the landing " +
+                    "line right now.",
+                checked = state.landingUnderline,
+                onToggle = viewModel::toggleLandingUnderline,
             )
 
             HorizontalDivider(Modifier.padding(vertical = 16.dp))
