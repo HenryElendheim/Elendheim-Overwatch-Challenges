@@ -74,6 +74,9 @@ data class RollUiState(
     val landingArrow: Boolean = true,
     val arrowSize: ArrowSize = ArrowSize.MEDIUM,
     val landingUnderline: Boolean = false,
+    val arrowColor: Int? = null,
+    val roleColors: Map<Role, Int> = emptyMap(),
+    val hapticsEnabled: Boolean = true,
 )
 
 class RollViewModel(application: Application) : AndroidViewModel(application) {
@@ -103,6 +106,12 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
             arrowSize = ArrowSize.entries.firstOrNull { it.name == prefs.getString(KEY_ARROW_SIZE, null) }
                 ?: ArrowSize.MEDIUM,
             landingUnderline = prefs.getBoolean(KEY_LANDING_UNDERLINE, false),
+            arrowColor = if (prefs.contains(KEY_ARROW_COLOR)) prefs.getInt(KEY_ARROW_COLOR, 0) else null,
+            roleColors = Role.entries.mapNotNull { role ->
+                val key = KEY_ROLE_COLOR_PREFIX + role.name
+                if (prefs.contains(key)) role to prefs.getInt(key, 0) else null
+            }.toMap(),
+            hapticsEnabled = prefs.getBoolean(KEY_HAPTICS, true),
         )
     )
         private set
@@ -249,6 +258,31 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         val on = !state.landingUnderline
         prefs.edit().putBoolean(KEY_LANDING_UNDERLINE, on).apply()
         state = state.copy(landingUnderline = on)
+    }
+
+    /** Null goes back to the default white arrow. */
+    fun setArrowColor(argb: Int?) {
+        prefs.edit().apply {
+            if (argb == null) remove(KEY_ARROW_COLOR) else putInt(KEY_ARROW_COLOR, argb)
+        }.apply()
+        state = state.copy(arrowColor = argb)
+    }
+
+    /** Null restores the role's original color. */
+    fun setRoleColor(role: Role, argb: Int?) {
+        val key = KEY_ROLE_COLOR_PREFIX + role.name
+        prefs.edit().apply {
+            if (argb == null) remove(key) else putInt(key, argb)
+        }.apply()
+        val colors = state.roleColors.toMutableMap()
+        if (argb == null) colors.remove(role) else colors[role] = argb
+        state = state.copy(roleColors = colors)
+    }
+
+    fun toggleHaptics() {
+        val on = !state.hapticsEnabled
+        prefs.edit().putBoolean(KEY_HAPTICS, on).apply()
+        state = state.copy(hapticsEnabled = on)
     }
 
     // rule packs
@@ -580,6 +614,9 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         const val KEY_LANDING_ARROW = "landing_arrow"
         const val KEY_ARROW_SIZE = "arrow_size"
         const val KEY_LANDING_UNDERLINE = "landing_underline"
+        const val KEY_ARROW_COLOR = "arrow_color"
+        const val KEY_ROLE_COLOR_PREFIX = "role_color_"
+        const val KEY_HAPTICS = "haptics_enabled"
 
         fun loadPacks(prefs: SharedPreferences): List<RulePack> {
             val raw = prefs.getString(KEY_RULE_PACKS, null)

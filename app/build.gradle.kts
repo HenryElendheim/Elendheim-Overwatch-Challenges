@@ -12,8 +12,8 @@ android {
         applicationId = "com.elendheim.overwatchchallenges"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13
-        versionName = "4.4"
+        versionCode = 14
+        versionName = "4.5"
     }
 
     // CI provides the release key through repo secrets; without them, local

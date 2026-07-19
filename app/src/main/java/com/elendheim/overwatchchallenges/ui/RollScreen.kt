@@ -11,10 +11,12 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -23,6 +25,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -76,11 +79,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -101,6 +108,7 @@ import com.elendheim.overwatchchallenges.ui.theme.TankBlue
 import kotlin.math.abs
 import kotlin.random.Random
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private val Role.tint
     get() = when (this) {
@@ -108,6 +116,51 @@ private val Role.tint
         Role.DAMAGE -> DamageRed
         Role.SUPPORT -> SupportGreen
     }
+
+/** The role's color, with any accessibility override applied. */
+private fun RollUiState.tintFor(role: Role): Color =
+    roleColors[role]?.let { Color(it) } ?: role.tint
+
+// distinct enough to cover most colorblindness combinations
+private val SwatchPalette = listOf(
+    Color(0xFF5FA8FF), Color(0xFF4DD0E1), Color(0xFF26A69A), Color(0xFF5FD98F),
+    Color(0xFFD4E157), Color(0xFFFFD54F), Color(0xFFFF9E2C), Color(0xFFFF7A66),
+    Color(0xFFEF5350), Color(0xFFF48FB1), Color(0xFFB388FF), Color(0xFFECEAF0),
+)
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ColorSwatchRow(
+    selected: Int?,
+    defaultLabel: String,
+    onPick: (Int?) -> Unit,
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        FilterChip(
+            selected = selected == null,
+            onClick = { onPick(null) },
+            label = { Text(defaultLabel) },
+        )
+        SwatchPalette.forEach { color ->
+            val argb = color.toArgb()
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(color)
+                    .border(
+                        width = if (selected == argb) 3.dp else 1.dp,
+                        color = if (selected == argb) Color.White else Color(0x33FFFFFF),
+                        shape = CircleShape,
+                    )
+                    .clickable { onPick(argb) },
+            )
+        }
+    }
+}
 
 private val muted
     @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
@@ -367,10 +420,15 @@ private fun SpinScreen(state: RollUiState, onLanded: () -> Unit) {
     val targetIndex = reel.size - 3
     val itemPx = with(LocalDensity.current) { state.reelDensity.itemHeight.dp.toPx() }
     val offset = remember(state.rollId) { Animatable(0f) }
+    // the landing pop: the winner bounces up while the rest clear the stage
+    val pop = remember(state.rollId) { Animatable(1f) }
+    val othersAlpha = remember(state.rollId) { Animatable(1f) }
+    val haptic = LocalHapticFeedback.current
 
     LaunchedEffect(state.rollId) {
         if (state.reduceMotion) {
             offset.snapTo(targetIndex * itemPx)
+            if (state.hapticsEnabled) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
             delay(200)
             onLanded()
             return@LaunchedEffect
@@ -386,7 +444,16 @@ private fun SpinScreen(state: RollUiState, onLanded: () -> Unit) {
                 },
             ),
         )
-        delay(340)
+        if (state.hapticsEnabled) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        launch { othersAlpha.animateTo(0f, tween(240)) }
+        pop.animateTo(
+            targetValue = 1.3f,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessMedium,
+            ),
+        )
+        delay(220)
         onLanded()
     }
 
@@ -405,15 +472,17 @@ private fun SpinScreen(state: RollUiState, onLanded: () -> Unit) {
                 text = if (isTarget && mystery) "???" else hero.name,
                 style = MaterialTheme.typography.displaySmall,
                 fontWeight = FontWeight.Bold,
-                color = if (isTarget && mystery) Ember else plainColor ?: hero.role.tint,
+                color = if (isTarget && mystery) Ember else plainColor ?: state.tintFor(hero.role),
                 modifier = Modifier
                     .align(Alignment.Center)
                     .graphicsLayer {
                         val dy = (index - offset.value / itemPx) * itemPx
                         translationY = dy
                         val distance = abs(dy) / (itemPx * 3f)
-                        alpha = (1f - distance * distance).coerceIn(0f, 1f)
-                        val scale = 1f - 0.3f * (abs(dy) / (itemPx * 2f)).coerceAtMost(1f)
+                        alpha = (1f - distance * distance).coerceIn(0f, 1f) *
+                            (if (isTarget) 1f else othersAlpha.value)
+                        val scale = (1f - 0.3f * (abs(dy) / (itemPx * 2f)).coerceAtMost(1f)) *
+                            (if (isTarget) pop.value else 1f)
                         scaleX = scale
                         scaleY = scale
                     },
@@ -434,7 +503,7 @@ private fun SpinScreen(state: RollUiState, onLanded: () -> Unit) {
                     lineTo(0f, size.height / 2f)
                     close()
                 }
-                drawPath(path, Color.White)
+                drawPath(path, state.arrowColor?.let { Color(it) } ?: Color.White)
             }
         }
         if (state.landingUnderline) {
@@ -487,8 +556,12 @@ private fun ResultScreen(
         )
 
         Spacer(Modifier.height(14.dp))
+        val haptic = LocalHapticFeedback.current
         OutlinedButton(
-            onClick = viewModel::died,
+            onClick = {
+                if (state.hapticsEnabled) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                viewModel.died()
+            },
             colors = ButtonDefaults.outlinedButtonColors(
                 contentColor = MaterialTheme.colorScheme.error,
             ),
@@ -622,7 +695,7 @@ private fun ResultCard(
             Text(
                 text = if (mystery) "WILDCARD" else result.hero.role.label.uppercase(),
                 style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp),
-                color = if (mystery) Ember else result.hero.role.tint,
+                color = if (mystery) Ember else state.tintFor(result.hero.role),
             )
             Text(
                 text = if (mystery) "???" else result.hero.name,
@@ -1655,7 +1728,7 @@ private fun HeroPoolSettings(state: RollUiState, viewModel: RollViewModel, onBac
                         text = role.label.uppercase() +
                             if (counts) " · $activeInRole/${roleHeroes.size}" else "",
                         style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp),
-                        color = role.tint,
+                        color = state.tintFor(role),
                         modifier = Modifier.weight(1f),
                     )
                     Switch(
@@ -1751,6 +1824,43 @@ private fun AccessibilitySettings(state: RollUiState, viewModel: RollViewModel, 
                 checked = state.reduceMotion,
                 onToggle = viewModel::toggleReduceMotion,
             )
+
+            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            SwitchRow(
+                title = "Haptics",
+                description = "A thump when the reel lands, and on the I died button.",
+                checked = state.hapticsEnabled,
+                onToggle = viewModel::toggleHaptics,
+            )
+
+            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            Text(
+                text = "ROLE COLORS",
+                style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp),
+                color = muted,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Pick your own colors for Tank, Damage and Support text, wherever " +
+                    "they appear. Handy for colorblindness or just taste. Default brings " +
+                    "back the originals.",
+                style = MaterialTheme.typography.bodySmall,
+                color = muted,
+            )
+            Role.entries.forEach { role ->
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = role.label,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = state.tintFor(role),
+                )
+                Spacer(Modifier.height(6.dp))
+                ColorSwatchRow(
+                    selected = state.roleColors[role],
+                    defaultLabel = "Default",
+                    onPick = { viewModel.setRoleColor(role, it) },
+                )
+            }
             Spacer(Modifier.height(20.dp))
         }
     }
@@ -1819,6 +1929,19 @@ private fun SpinSettings(state: RollUiState, viewModel: RollViewModel, onBack: (
                         ),
                     ) { Text(size.label) }
                 }
+            }
+            if (state.landingArrow) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = "Arrow color",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(Modifier.height(6.dp))
+                ColorSwatchRow(
+                    selected = state.arrowColor,
+                    defaultLabel = "White",
+                    onPick = viewModel::setArrowColor,
+                )
             }
 
             HorizontalDivider(Modifier.padding(vertical = 16.dp))
