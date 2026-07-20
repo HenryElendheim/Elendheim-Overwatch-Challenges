@@ -28,6 +28,7 @@ enum class Category(val label: String) {
     MEME("Meme"),
     SUPPORT("Support"),
     TANK("Tank"),
+    DAMAGE("Damage"),
     HOUSE("House rule"),
 }
 

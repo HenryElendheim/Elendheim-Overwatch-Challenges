@@ -119,31 +119,26 @@ private val Role.tint
 
 /** The role's color, with any accessibility override applied. */
 private fun RollUiState.tintFor(role: Role): Color =
-    roleColors[role]?.let { Color(it) } ?: role.tint
+    if (!customRoleColors) role.tint
+    else roleColors[role]?.let { Color(it) } ?: role.tint
 
 // distinct enough to cover most colorblindness combinations
 private val SwatchPalette = listOf(
     Color(0xFF5FA8FF), Color(0xFF4DD0E1), Color(0xFF26A69A), Color(0xFF5FD98F),
     Color(0xFFD4E157), Color(0xFFFFD54F), Color(0xFFFF9E2C), Color(0xFFFF7A66),
-    Color(0xFFEF5350), Color(0xFFF48FB1), Color(0xFFB388FF), Color(0xFFECEAF0),
+    Color(0xFFEF5350), Color(0xFFF48FB1), Color(0xFFB388FF), Color(0xFFFFFFFF),
 )
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ColorSwatchRow(
     selected: Int?,
-    defaultLabel: String,
     onPick: (Int?) -> Unit,
 ) {
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        FilterChip(
-            selected = selected == null,
-            onClick = { onPick(null) },
-            label = { Text(defaultLabel) },
-        )
         SwatchPalette.forEach { color ->
             val argb = color.toArgb()
             Box(
@@ -153,7 +148,7 @@ private fun ColorSwatchRow(
                     .background(color)
                     .border(
                         width = if (selected == argb) 3.dp else 1.dp,
-                        color = if (selected == argb) Color.White else Color(0x33FFFFFF),
+                        color = if (selected == argb) Ember else Color(0x33FFFFFF),
                         shape = CircleShape,
                     )
                     .clickable { onPick(argb) },
@@ -1834,32 +1829,39 @@ private fun AccessibilitySettings(state: RollUiState, viewModel: RollViewModel, 
             )
 
             HorizontalDivider(Modifier.padding(vertical = 16.dp))
-            Text(
-                text = "ROLE COLORS",
-                style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp),
-                color = muted,
-            )
-            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "ROLE COLORS",
+                    style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp),
+                    color = muted,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(
+                    checked = state.customRoleColors,
+                    onCheckedChange = { viewModel.toggleCustomRoleColors() },
+                )
+            }
             Text(
                 text = "Pick your own colors for Tank, Damage and Support text, wherever " +
-                    "they appear. Handy for colorblindness or just taste. Default brings " +
-                    "back the originals.",
+                    "they appear. Handy for colorblindness or just taste. Switch off to " +
+                    "go back to the originals - your picks are kept.",
                 style = MaterialTheme.typography.bodySmall,
                 color = muted,
             )
-            Role.entries.forEach { role ->
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    text = role.label,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = state.tintFor(role),
-                )
-                Spacer(Modifier.height(6.dp))
-                ColorSwatchRow(
-                    selected = state.roleColors[role],
-                    defaultLabel = "Default",
-                    onPick = { viewModel.setRoleColor(role, it) },
-                )
+            if (state.customRoleColors) {
+                Role.entries.forEach { role ->
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = role.label,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = state.tintFor(role),
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    ColorSwatchRow(
+                        selected = state.roleColors[role],
+                        onPick = { viewModel.setRoleColor(role, it) },
+                    )
+                }
             }
             Spacer(Modifier.height(20.dp))
         }
@@ -1939,7 +1941,6 @@ private fun SpinSettings(state: RollUiState, viewModel: RollViewModel, onBack: (
                 Spacer(Modifier.height(6.dp))
                 ColorSwatchRow(
                     selected = state.arrowColor,
-                    defaultLabel = "White",
                     onPick = viewModel::setArrowColor,
                 )
             }

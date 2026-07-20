@@ -76,6 +76,7 @@ data class RollUiState(
     val landingUnderline: Boolean = false,
     val arrowColor: Int? = null,
     val roleColors: Map<Role, Int> = emptyMap(),
+    val customRoleColors: Boolean = true,
     val hapticsEnabled: Boolean = true,
 )
 
@@ -111,6 +112,7 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
                 val key = KEY_ROLE_COLOR_PREFIX + role.name
                 if (prefs.contains(key)) role to prefs.getInt(key, 0) else null
             }.toMap(),
+            customRoleColors = prefs.getBoolean(KEY_CUSTOM_ROLE_COLORS, true),
             hapticsEnabled = prefs.getBoolean(KEY_HAPTICS, true),
         )
     )
@@ -277,6 +279,13 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         val colors = state.roleColors.toMutableMap()
         if (argb == null) colors.remove(role) else colors[role] = argb
         state = state.copy(roleColors = colors)
+    }
+
+    /** One switch for all roles: off means original colors, picks are kept. */
+    fun toggleCustomRoleColors() {
+        val on = !state.customRoleColors
+        prefs.edit().putBoolean(KEY_CUSTOM_ROLE_COLORS, on).apply()
+        state = state.copy(customRoleColors = on)
     }
 
     fun toggleHaptics() {
@@ -616,6 +625,7 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         const val KEY_LANDING_UNDERLINE = "landing_underline"
         const val KEY_ARROW_COLOR = "arrow_color"
         const val KEY_ROLE_COLOR_PREFIX = "role_color_"
+        const val KEY_CUSTOM_ROLE_COLORS = "custom_role_colors"
         const val KEY_HAPTICS = "haptics_enabled"
 
         fun loadPacks(prefs: SharedPreferences): List<RulePack> {
