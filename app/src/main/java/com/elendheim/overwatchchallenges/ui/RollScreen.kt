@@ -395,7 +395,8 @@ private fun StartScreen(onRoll: () -> Unit, onSettings: () -> Unit) {
 private fun SpinScreen(state: RollUiState, onLanded: () -> Unit) {
     val result = state.result ?: return
     val reel = remember(state.rollId) {
-        val base = state.roleFilter?.let(Roster::byRole) ?: Roster.heroes
+        val roster = Roster.heroes + state.customHeroes
+        val base = state.roleFilter?.let { r -> roster.filter { it.role == r } } ?: roster
         val pool = base.filterNot { it.name in state.disabledHeroes }.ifEmpty { base }
         buildReel(pool, result.hero, state.rollId)
     }
@@ -709,8 +710,7 @@ private fun ResultCard(
             Spacer(Modifier.height(18.dp))
             if (result.challenges.isEmpty() && result.pendingChallenge != null) {
                 Text(
-                    text = "No constraint this time. Escalate deals the one you were owed, " +
-                        "and that one's locked in.",
+                    text = "Press escalate for a challenge!",
                     style = MaterialTheme.typography.bodyMedium,
                     color = muted,
                 )
@@ -790,8 +790,11 @@ private fun ChallengeItem(
 private fun ChallengeBlock(challenge: Challenge) {
     Column(Modifier.fillMaxWidth()) {
         Text(
-            text = "${challenge.packName ?: challenge.category.label} · " +
-                (challenge.customTag ?: challenge.intensity.label),
+            text = listOfNotNull(
+                challenge.heroName,
+                challenge.packName ?: challenge.category.label,
+                challenge.customTag ?: challenge.intensity.label,
+            ).joinToString(" · "),
             style = MaterialTheme.typography.labelMedium,
             color = muted,
         )
@@ -860,7 +863,8 @@ private fun SwitchRow(title: String, description: String, checked: Boolean, onTo
 
 @Composable
 private fun SettingsRoot(state: RollUiState, onOpen: (String) -> Unit, onDone: () -> Unit) {
-    val activeHeroes = Roster.heroes.count { it.name !in state.disabledHeroes }
+    val totalHeroes = Roster.heroes.size + state.customHeroes.size
+    val activeHeroes = (Roster.heroes + state.customHeroes).count { it.name !in state.disabledHeroes }
     val packsOn = state.rulePacks.count { it.enabled }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
@@ -891,7 +895,7 @@ private fun SettingsRoot(state: RollUiState, onOpen: (String) -> Unit, onDone: (
             SettingsRow(
                 title = "Hero pool",
                 subtitle = if (state.showPoolCounts) {
-                    "$activeHeroes/${Roster.heroes.size} heroes active"
+                    "$activeHeroes/$totalHeroes heroes active"
                 } else {
                     "Bans and role switches"
                 },
@@ -958,8 +962,8 @@ private fun SquadSettings(state: RollUiState, viewModel: RollViewModel, onBack: 
             Spacer(Modifier.height(10.dp))
             Text(
                 text = "Everyone who enters the same word gets the same rolls, as long as " +
-                    "filters, hero bans and packs match and you tap in the same order. " +
-                    "Setting a word starts a fresh sequence.",
+                    "filters, hero bans, custom heroes and packs match and you tap in the " +
+                    "same order. Setting a word starts a fresh sequence.",
                 style = MaterialTheme.typography.bodySmall,
                 color = muted,
             )
@@ -1350,8 +1354,8 @@ private fun PackDetailSettings(
                         RuleEditor(
                             rule = rule,
                             allTags = allTags,
-                            onSave = { text, tag ->
-                                viewModel.updateRule(pack.name, rule, text, tag)
+                            onSave = { text, tag, hero ->
+                                viewModel.updateRule(pack.name, rule, text, tag, hero)
                                 editingRule = null
                             },
                             onDelete = {
@@ -1377,7 +1381,11 @@ private fun PackDetailSettings(
                         ) {
                             Column(Modifier.weight(1f)) {
                                 Text(rule.text, style = MaterialTheme.typography.bodyMedium)
-                                Text(rule.tag, style = MaterialTheme.typography.labelSmall, color = muted)
+                                Text(
+                                    text = listOfNotNull(rule.hero, rule.tag).joinToString(" · "),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = muted,
+                                )
                             }
                             if (selecting) {
                                 Text(
@@ -1409,6 +1417,7 @@ private fun PackDetailSettings(
             Spacer(Modifier.height(6.dp))
             var ruleText by remember { mutableStateOf("") }
             var ruleTag by remember { mutableStateOf("") }
+            var ruleHero by remember { mutableStateOf("") }
             var showTagPicker by remember { mutableStateOf(false) }
             OutlinedTextField(
                 value = ruleText,
@@ -1437,12 +1446,21 @@ private fun PackDetailSettings(
                     showTagPicker = false
                 }
             }
+            Spacer(Modifier.height(6.dp))
+            OutlinedTextField(
+                value = ruleHero,
+                onValueChange = { ruleHero = it },
+                label = { Text("Hero (optional, locks the rule to them)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
             Spacer(Modifier.height(8.dp))
             Button(
                 onClick = {
-                    viewModel.addRule(pack.name, ruleText, ruleTag)
+                    viewModel.addRule(pack.name, ruleText, ruleTag, ruleHero)
                     ruleText = ""
                     ruleTag = ""
+                    ruleHero = ""
                 },
                 enabled = ruleText.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
@@ -1583,12 +1601,13 @@ private fun StandardPackSettings(
 private fun RuleEditor(
     rule: CustomRule,
     allTags: List<String>,
-    onSave: (String, String) -> Unit,
+    onSave: (String, String, String) -> Unit,
     onDelete: () -> Unit,
     onCancel: () -> Unit,
 ) {
     var text by remember { mutableStateOf(rule.text) }
     var tag by remember { mutableStateOf(rule.tag) }
+    var hero by remember { mutableStateOf(rule.hero.orEmpty()) }
     var showTagPicker by remember { mutableStateOf(false) }
 
     Card(
@@ -1623,10 +1642,18 @@ private fun RuleEditor(
                     showTagPicker = false
                 }
             }
+            Spacer(Modifier.height(6.dp))
+            OutlinedTextField(
+                value = hero,
+                onValueChange = { hero = it },
+                label = { Text("Hero (optional)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    onClick = { onSave(text, tag) },
+                    onClick = { onSave(text, tag, hero) },
                     enabled = text.isNotBlank(),
                     modifier = Modifier.weight(1f),
                 ) { Text("Save") }
@@ -1673,7 +1700,8 @@ private fun TagPicker(allTags: List<String>, onPick: (String) -> Unit) {
 @Composable
 private fun HeroPoolSettings(state: RollUiState, viewModel: RollViewModel, onBack: () -> Unit) {
     val counts = state.showPoolCounts
-    val activeTotal = Roster.heroes.count { it.name !in state.disabledHeroes }
+    val allHeroes = Roster.heroes + state.customHeroes
+    val activeTotal = allHeroes.count { it.name !in state.disabledHeroes }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         SettingsHeader("Hero pool", "Back", onBack)
@@ -1694,14 +1722,14 @@ private fun HeroPoolSettings(state: RollUiState, viewModel: RollViewModel, onBac
             HorizontalDivider(Modifier.padding(vertical = 16.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = if (counts) "All heroes · $activeTotal/${Roster.heroes.size}" else "All heroes",
+                    text = if (counts) "All heroes · $activeTotal/${allHeroes.size}" else "All heroes",
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f),
                 )
                 Switch(
-                    checked = Roster.heroes.none { it.name in state.disabledHeroes },
+                    checked = allHeroes.none { it.name in state.disabledHeroes },
                     onCheckedChange = { on ->
-                        viewModel.setGroupEnabled(Roster.heroes.map { it.name }, on)
+                        viewModel.setGroupEnabled(allHeroes.map { it.name }, on)
                     },
                 )
             }
@@ -1715,7 +1743,7 @@ private fun HeroPoolSettings(state: RollUiState, viewModel: RollViewModel, onBac
             )
 
             Role.entries.forEach { role ->
-                val roleHeroes = Roster.byRole(role)
+                val roleHeroes = allHeroes.filter { it.role == role }
                 val activeInRole = roleHeroes.count { it.name !in state.disabledHeroes }
                 Spacer(Modifier.height(14.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1744,6 +1772,65 @@ private fun HeroPoolSettings(state: RollUiState, viewModel: RollViewModel, onBac
                     }
                 }
             }
+
+            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            Text("Custom heroes", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "New hero dropped and the app hasn't caught up? Add them yourself " +
+                    "and pick their role. They join the roller, the reel and the ban list " +
+                    "like anyone else. Your additions can be removed; the built-in roster " +
+                    "can't.",
+                style = MaterialTheme.typography.bodySmall,
+                color = muted,
+            )
+            state.customHeroes.forEach { hero ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 6.dp),
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(hero.name, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            text = hero.role.label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = state.tintFor(hero.role),
+                        )
+                    }
+                    TextButton(onClick = { viewModel.removeCustomHero(hero) }) {
+                        Text("Remove")
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            var newHeroName by remember { mutableStateOf("") }
+            var newHeroRole by remember { mutableStateOf(Role.TANK) }
+            OutlinedTextField(
+                value = newHeroName,
+                onValueChange = { newHeroName = it },
+                label = { Text("Hero name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                Role.entries.forEachIndexed { index, role ->
+                    SegmentedButton(
+                        selected = newHeroRole == role,
+                        onClick = { newHeroRole = role },
+                        shape = SegmentedButtonDefaults.itemShape(index = index, count = Role.entries.size),
+                    ) { Text(role.label) }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    viewModel.addCustomHero(newHeroName, newHeroRole)
+                    newHeroName = ""
+                },
+                enabled = newHeroName.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Add hero") }
             Spacer(Modifier.height(20.dp))
         }
     }

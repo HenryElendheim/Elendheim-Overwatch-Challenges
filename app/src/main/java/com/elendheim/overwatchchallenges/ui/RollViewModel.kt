@@ -10,9 +10,11 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import com.elendheim.overwatchchallenges.data.Challenge
 import com.elendheim.overwatchchallenges.data.CustomRule
+import com.elendheim.overwatchchallenges.data.Hero
 import com.elendheim.overwatchchallenges.data.Intensity
 import com.elendheim.overwatchchallenges.data.PoolMode
 import com.elendheim.overwatchchallenges.data.Role
+import com.elendheim.overwatchchallenges.data.Roster
 import com.elendheim.overwatchchallenges.data.RulePack
 import com.elendheim.overwatchchallenges.data.toChallenges
 import com.elendheim.overwatchchallenges.engine.RollEngine
@@ -58,6 +60,7 @@ data class RollUiState(
     val mutations: Int = 0,
     val deaths: Int = 0,
     val disabledHeroes: Set<String> = emptySet(),
+    val customHeroes: List<Hero> = emptyList(),
     val mysteryEnabled: Boolean = true,
     val noChallengeMode: Boolean = false,
     val standardEnabled: Boolean = true,
@@ -87,6 +90,7 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
     var state by mutableStateOf(
         RollUiState(
             disabledHeroes = prefs.getStringSet(KEY_DISABLED_HEROES, null).orEmpty().toSet(),
+            customHeroes = loadCustomHeroes(prefs.getString(KEY_CUSTOM_HEROES, null)),
             mysteryEnabled = prefs.getBoolean(KEY_MYSTERY, true),
             noChallengeMode = prefs.getBoolean(KEY_NO_CHALLENGE, false),
             standardEnabled = prefs.getBoolean(KEY_STANDARD, true),
@@ -173,6 +177,26 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
     private fun saveDisabled(disabled: Set<String>) {
         prefs.edit().putStringSet(KEY_DISABLED_HEROES, disabled).apply()
         state = state.copy(disabledHeroes = disabled)
+    }
+
+    /** New hero dropped and the app hasn't caught up? Add them yourself. */
+    fun addCustomHero(name: String, role: Role) {
+        val clean = name.trim()
+        if (clean.isEmpty()) return
+        if ((Roster.heroes + state.customHeroes).any { it.name.equals(clean, ignoreCase = true) }) return
+        saveCustomHeroes(state.customHeroes + Hero(clean, role))
+    }
+
+    /** Only custom heroes can go; the built-in roster is permanent. */
+    fun removeCustomHero(hero: Hero) {
+        saveCustomHeroes(state.customHeroes - hero)
+    }
+
+    private fun saveCustomHeroes(heroes: List<Hero>) {
+        val json = JSONArray()
+        heroes.forEach { json.put(JSONObject().put("name", it.name).put("role", it.role.name)) }
+        prefs.edit().putString(KEY_CUSTOM_HEROES, json.toString()).apply()
+        state = state.copy(customHeroes = heroes)
     }
 
     fun toggleMystery() {
@@ -314,27 +338,29 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         savePacks(state.rulePacks.map { if (it.name == name) it.copy(enabled = !it.enabled) else it })
     }
 
-    fun addRule(packName: String, text: String, tag: String) {
+    fun addRule(packName: String, text: String, tag: String, hero: String = "") {
         val cleanText = text.trim()
         if (cleanText.isEmpty()) return
         val cleanTag = tag.trim().ifEmpty { Intensity.CHAOS.label }
+        val cleanHero = hero.trim().takeUnless { it.isEmpty() }
         savePacks(
             state.rulePacks.map { pack ->
                 if (pack.name != packName) return@map pack
                 if (pack.rules.any { it.text.equals(cleanText, ignoreCase = true) }) return@map pack
-                pack.copy(rules = pack.rules + CustomRule(cleanText, cleanTag))
+                pack.copy(rules = pack.rules + CustomRule(cleanText, cleanTag, cleanHero))
             }
         )
     }
 
-    fun updateRule(packName: String, oldRule: CustomRule, newText: String, newTag: String) {
+    fun updateRule(packName: String, oldRule: CustomRule, newText: String, newTag: String, newHero: String = "") {
         val text = newText.trim()
         if (text.isEmpty()) return
         val tag = newTag.trim().ifEmpty { Intensity.CHAOS.label }
+        val hero = newHero.trim().takeUnless { it.isEmpty() }
         savePacks(
             state.rulePacks.map { pack ->
                 if (pack.name != packName) pack
-                else pack.copy(rules = pack.rules.map { if (it == oldRule) CustomRule(text, tag) else it })
+                else pack.copy(rules = pack.rules.map { if (it == oldRule) CustomRule(text, tag, hero) else it })
             }
         )
     }
@@ -350,7 +376,11 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun packJson(pack: RulePack): JSONObject {
         val rules = JSONArray()
-        pack.rules.forEach { rules.put(JSONObject().put("text", it.text).put("tag", it.tag)) }
+        pack.rules.forEach { rule ->
+            val entry = JSONObject().put("text", rule.text).put("tag", rule.tag)
+            rule.hero?.let { entry.put("hero", it) }
+            rules.put(entry)
+        }
         return JSONObject().put("name", pack.name).put("code", pack.code).put("rules", rules)
     }
 
@@ -410,7 +440,11 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
             val rulesJson = json.getJSONArray("rules")
             val rules = (0 until rulesJson.length()).map { i ->
                 val rule = rulesJson.getJSONObject(i)
-                CustomRule(rule.getString("text"), rule.optString("tag", Intensity.CHAOS.label))
+                CustomRule(
+                    rule.getString("text"),
+                    rule.optString("tag", Intensity.CHAOS.label),
+                    rule.optString("hero", "").ifBlank { null },
+                )
             }
             val incomingCode = json.optString("code", "").trim().uppercase()
             val packCode = if (incomingCode.matches(SHORT_CODE)) incomingCode else generatePackCode()
@@ -485,7 +519,7 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
     // the loop
 
     fun roll() {
-        val hero = engine.rollHero(state.roleFilter, state.disabledHeroes)
+        val hero = engine.rollHero(state.roleFilter, state.disabledHeroes, state.customHeroes)
         // the rare ??? wildcard: a constraint that decides your hero instead
         // of the roll. the chance check always runs so squad seeds stay in step.
         // wildcards live in the standard pool and make no sense hero-less
@@ -497,6 +531,7 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
                 state.poolMode,
                 extras = packExtras(),
                 includeStandard = state.standardEnabled,
+                heroName = hero.name,
             )
         // always roll the punishment so the stakes toggle can show and hide the
         // same one, and so squad seeds stay in step whatever anyone toggles
@@ -524,6 +559,7 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
             exclude = current.challenges,
             extras = packExtras(),
             includeStandard = state.standardEnabled,
+            heroName = current.hero.name,
         )
         val challenges = current.challenges.dropLast(1) + fresh
         state = state.copy(
@@ -553,6 +589,7 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
             exclude = current.challenges,
             extras = packExtras(),
             includeStandard = state.standardEnabled,
+            heroName = current.hero.name,
         )
         state = state.copy(result = current.copy(challenges = current.challenges + extra))
     }
@@ -579,6 +616,22 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         const val CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
         const val KEY_PACK_ARCHIVE = "pack_archive"
         const val KEY_DISABLED_HEROES = "disabled_heroes"
+        const val KEY_CUSTOM_HEROES = "custom_heroes"
+
+        fun loadCustomHeroes(raw: String?): List<Hero> {
+            if (raw == null) return emptyList()
+            return runCatching {
+                val json = JSONArray(raw)
+                (0 until json.length()).map { i ->
+                    val entry = json.getJSONObject(i)
+                    Hero(
+                        name = entry.getString("name"),
+                        role = Role.entries.firstOrNull { it.name == entry.optString("role") }
+                            ?: Role.DAMAGE,
+                    )
+                }
+            }.getOrDefault(emptyList())
+        }
 
         fun newCode(taken: Set<String>): String {
             while (true) {
@@ -594,7 +647,9 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
             packs.forEach { pack ->
                 val rules = JSONArray()
                 pack.rules.forEach { rule ->
-                    rules.put(JSONObject().put("text", rule.text).put("tag", rule.tag))
+                    val entry = JSONObject().put("text", rule.text).put("tag", rule.tag)
+                    rule.hero?.let { entry.put("hero", it) }
+                    rules.put(entry)
                 }
                 json.put(
                     JSONObject()
@@ -661,7 +716,11 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
                     enabled = pack.optBoolean("enabled", true),
                     rules = (0 until rulesJson.length()).map { j ->
                         val rule = rulesJson.getJSONObject(j)
-                        CustomRule(rule.getString("text"), rule.optString("tag", Intensity.CHAOS.label))
+                        CustomRule(
+                            rule.getString("text"),
+                            rule.optString("tag", Intensity.CHAOS.label),
+                            rule.optString("hero", "").ifBlank { null },
+                        )
                     },
                     code = pack.optString("code", ""),
                 )

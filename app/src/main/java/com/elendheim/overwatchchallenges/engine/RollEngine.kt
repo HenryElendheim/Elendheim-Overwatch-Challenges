@@ -32,8 +32,13 @@ class RollEngine(seed: Long? = null) {
 
     private val random: Random = if (seed != null) Random(seed) else Random.Default
 
-    fun rollHero(roleFilter: Role?, disabled: Set<String> = emptySet()): Hero {
-        val base = roleFilter?.let(Roster::byRole) ?: Roster.heroes
+    fun rollHero(
+        roleFilter: Role?,
+        disabled: Set<String> = emptySet(),
+        extraHeroes: List<Hero> = emptyList(),
+    ): Hero {
+        val roster = Roster.heroes + extraHeroes
+        val base = roleFilter?.let { r -> roster.filter { it.role == r } } ?: roster
         // if someone bans an entire role's worth of heroes, roll from the full
         // list rather than rolling nothing
         val pool = base.filterNot { it.name in disabled }.ifEmpty { base }
@@ -46,11 +51,12 @@ class RollEngine(seed: Long? = null) {
         exclude: List<Challenge> = emptyList(),
         extras: List<Challenge> = emptyList(),
         includeStandard: Boolean = true,
+        heroName: String? = null,
     ): Challenge {
         // fall back step by step so a too-narrow setup still rolls something
-        val pool = ChallengePool.matching(role, mode, exclude, extras, includeStandard)
-            .ifEmpty { ChallengePool.matching(role, mode, extras = extras, includeStandard = includeStandard) }
-            .ifEmpty { ChallengePool.matching(role, mode, extras = extras) }
+        val pool = ChallengePool.matching(role, mode, exclude, extras, includeStandard, heroName)
+            .ifEmpty { ChallengePool.matching(role, mode, extras = extras, includeStandard = includeStandard, heroName = heroName) }
+            .ifEmpty { ChallengePool.matching(role, mode, extras = extras, heroName = heroName) }
         return pool.random(random)
     }
 

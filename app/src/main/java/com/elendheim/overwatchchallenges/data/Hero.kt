@@ -12,6 +12,7 @@ object Roster {
 
     val heroes: List<Hero> = listOf(
         // Tank
+        Hero("D.Mon", Role.TANK),
         Hero("D.Va", Role.TANK),
         Hero("Domina", Role.TANK),
         Hero("Doomfist", Role.TANK),

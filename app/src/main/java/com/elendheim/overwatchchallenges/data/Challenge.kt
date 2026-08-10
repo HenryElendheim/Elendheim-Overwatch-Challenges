@@ -39,6 +39,8 @@ enum class Category(val label: String) {
  * @param customTag free-text tag from a rule pack. Tagged rules only roll in
  *   Mixed, since Warmup and Chaos filter to their exact tag.
  * @param packName which rule pack this came from, shown instead of the category.
+ * @param heroName locks the challenge to one hero; it only rolls when that
+ *   hero does.
  */
 data class Challenge(
     val text: String,
@@ -48,4 +50,5 @@ data class Challenge(
     val overridesHero: Boolean = false,
     val customTag: String? = null,
     val packName: String? = null,
+    val heroName: String? = null,
 )

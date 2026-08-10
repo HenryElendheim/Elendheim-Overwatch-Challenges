@@ -276,6 +276,18 @@ object ChallengePool {
         Challenge("Every death must be avenged within 30 seconds. Start the timer.", Category.DAMAGE, Intensity.CHAOS, roles = setOf(Role.DAMAGE)),
         Challenge("Between fights you're either flanking or poking. No loitering.", Category.DAMAGE, Intensity.WARMUP, roles = setOf(Role.DAMAGE)),
         Challenge("Trade queen: whenever a teammate dies near you, their killer dies next. No exceptions.", Category.DAMAGE, Intensity.CHAOS, roles = setOf(Role.DAMAGE)),
+
+        // Hero-specific - 10, these only roll when that hero does
+        Challenge("You are no longer allowed to charge unless you hit two fire strikes in a row.", Category.ABILITIES, Intensity.WARMUP, roles = setOf(Role.TANK), heroName = "Reinhardt"),
+        Challenge("Deflect only ults. Everything else you dodge like a ninja.", Category.ABILITIES, Intensity.CHAOS, roles = setOf(Role.DAMAGE), heroName = "Genji"),
+        Challenge("Pistol out between every resurrect. Battle angel.", Category.SUPPORT, Intensity.CHAOS, roles = setOf(Role.SUPPORT), heroName = "Mercy"),
+        Challenge("Speed song only. Healing is for people who can't wall-ride.", Category.SUPPORT, Intensity.CHAOS, roles = setOf(Role.SUPPORT), heroName = "Lúcio"),
+        Challenge("Blinks come in threes or not at all.", Category.ABILITIES, Intensity.CHAOS, roles = setOf(Role.DAMAGE), heroName = "Tracer"),
+        Challenge("No scoping until you've landed two hipfire shots.", Category.AIM, Intensity.WARMUP, roles = setOf(Role.DAMAGE), heroName = "Widowmaker"),
+        Challenge("Every jump pack must land on an enemy's head.", Category.MOVEMENT, Intensity.CHAOS, roles = setOf(Role.TANK), heroName = "Winston"),
+        Challenge("Hooks only on targets a teammate called out loud.", Category.ABILITIES, Intensity.WARMUP, roles = setOf(Role.TANK), heroName = "Roadhog"),
+        Challenge("Discord the tank only. The little ones get harmony.", Category.SUPPORT, Intensity.WARMUP, roles = setOf(Role.SUPPORT), heroName = "Zenyatta"),
+        Challenge("One sonic arrow per fight, fired before any combat arrow.", Category.AIM, Intensity.WARMUP, roles = setOf(Role.DAMAGE), heroName = "Hanzo"),
     )
 
     /**
@@ -289,11 +301,15 @@ object ChallengePool {
         exclude: Collection<Challenge> = emptyList(),
         extras: List<Challenge> = emptyList(),
         includeStandard: Boolean = true,
+        heroName: String? = null,
     ): List<Challenge> {
         val base = if (includeStandard) all + extras else extras
         return base.filter { challenge ->
             val roleOk = challenge.roles == null || role in challenge.roles
-            !challenge.overridesHero && roleOk && matchesMode(challenge, mode) && challenge !in exclude
+            val heroOk = challenge.heroName == null ||
+                challenge.heroName.equals(heroName, ignoreCase = true)
+            !challenge.overridesHero && roleOk && heroOk &&
+                matchesMode(challenge, mode) && challenge !in exclude
         }
     }
 
