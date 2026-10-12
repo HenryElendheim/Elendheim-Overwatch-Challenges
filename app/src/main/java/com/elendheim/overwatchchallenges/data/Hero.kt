@@ -46,7 +46,6 @@ object Roster {
         Hero("Sierra", Role.DAMAGE),
         Hero("Sojourn", Role.DAMAGE),
         Hero("Soldier: 76", Role.DAMAGE),
-        Hero("Sombra", Role.DAMAGE),
         Hero("Symmetra", Role.DAMAGE),
         Hero("Torbjörn", Role.DAMAGE),
         Hero("Tracer", Role.DAMAGE),
@@ -58,6 +57,7 @@ object Roster {
         Hero("Ana", Role.SUPPORT),
         Hero("Baptiste", Role.SUPPORT),
         Hero("Brigitte", Role.SUPPORT),
+        Hero("Doctrine", Role.SUPPORT),
         Hero("Illari", Role.SUPPORT),
         Hero("Jetpack Cat", Role.SUPPORT),
         Hero("Juno", Role.SUPPORT),
@@ -67,6 +67,7 @@ object Roster {
         Hero("Mercy", Role.SUPPORT),
         Hero("Mizuki", Role.SUPPORT),
         Hero("Moira", Role.SUPPORT),
+        Hero("Sombra", Role.SUPPORT),
         Hero("Wuyang", Role.SUPPORT),
         Hero("Zenyatta", Role.SUPPORT),
     )

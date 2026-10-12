@@ -61,6 +61,8 @@ data class RollUiState(
     val deaths: Int = 0,
     val disabledHeroes: Set<String> = emptySet(),
     val customHeroes: List<Hero> = emptyList(),
+    val roleOverrides: Map<String, Role> = emptyMap(),
+    val removedDefaults: Set<String> = emptySet(),
     val mysteryEnabled: Boolean = true,
     val noChallengeMode: Boolean = false,
     val standardEnabled: Boolean = true,
@@ -83,6 +85,14 @@ data class RollUiState(
     val hapticsEnabled: Boolean = true,
 )
 
+/**
+ * The roster as this phone actually runs it: built-ins minus anything
+ * deleted, plus custom heroes, with role edits applied on top.
+ */
+fun RollUiState.activeRoster(): List<Hero> =
+    (Roster.heroes.filterNot { it.name in removedDefaults } + customHeroes)
+        .map { hero -> roleOverrides[hero.name]?.let { Hero(hero.name, it) } ?: hero }
+
 class RollViewModel(application: Application) : AndroidViewModel(application) {
 
     private val prefs = application.getSharedPreferences("elendheim", Context.MODE_PRIVATE)
@@ -91,6 +101,8 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         RollUiState(
             disabledHeroes = prefs.getStringSet(KEY_DISABLED_HEROES, null).orEmpty().toSet(),
             customHeroes = loadCustomHeroes(prefs.getString(KEY_CUSTOM_HEROES, null)),
+            roleOverrides = loadRoleOverrides(prefs.getString(KEY_ROLE_OVERRIDES, null)),
+            removedDefaults = prefs.getStringSet(KEY_REMOVED_DEFAULTS, null).orEmpty().toSet(),
             mysteryEnabled = prefs.getBoolean(KEY_MYSTERY, true),
             noChallengeMode = prefs.getBoolean(KEY_NO_CHALLENGE, false),
             standardEnabled = prefs.getBoolean(KEY_STANDARD, true),
@@ -197,6 +209,48 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         heroes.forEach { json.put(JSONObject().put("name", it.name).put("role", it.role.name)) }
         prefs.edit().putString(KEY_CUSTOM_HEROES, json.toString()).apply()
         state = state.copy(customHeroes = heroes)
+    }
+
+    /** Reassign any hero's role. Setting a built-in back to their default clears the edit. */
+    fun setHeroRole(name: String, role: Role) {
+        val custom = state.customHeroes.firstOrNull { it.name == name }
+        if (custom != null) {
+            saveCustomHeroes(state.customHeroes.map { if (it.name == name) Hero(name, role) else it })
+            return
+        }
+        val default = Roster.heroes.firstOrNull { it.name == name }?.role ?: return
+        val overrides = state.roleOverrides.toMutableMap()
+        if (default == role) overrides.remove(name) else overrides[name] = role
+        saveRoleOverrides(overrides)
+    }
+
+    /** Built-ins are hidden (restorable); custom heroes are gone for good. */
+    fun deleteHero(name: String) {
+        val custom = state.customHeroes.firstOrNull { it.name == name }
+        if (custom != null) {
+            removeCustomHero(custom)
+            return
+        }
+        if (Roster.heroes.none { it.name == name }) return
+        val removed = state.removedDefaults + name
+        prefs.edit().putStringSet(KEY_REMOVED_DEFAULTS, removed).apply()
+        state = state.copy(removedDefaults = removed)
+    }
+
+    /** Undo every role edit and deletion of built-ins. Custom heroes and bans stay. */
+    fun restoreRosterDefaults() {
+        prefs.edit()
+            .remove(KEY_ROLE_OVERRIDES)
+            .remove(KEY_REMOVED_DEFAULTS)
+            .apply()
+        state = state.copy(roleOverrides = emptyMap(), removedDefaults = emptySet())
+    }
+
+    private fun saveRoleOverrides(overrides: Map<String, Role>) {
+        val json = JSONObject()
+        overrides.forEach { (name, role) -> json.put(name, role.name) }
+        prefs.edit().putString(KEY_ROLE_OVERRIDES, json.toString()).apply()
+        state = state.copy(roleOverrides = overrides)
     }
 
     fun toggleMystery() {
@@ -519,7 +573,7 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
     // the loop
 
     fun roll() {
-        val hero = engine.rollHero(state.roleFilter, state.disabledHeroes, state.customHeroes)
+        val hero = engine.rollHero(state.roleFilter, state.disabledHeroes, state.activeRoster())
         // the rare ??? wildcard: a constraint that decides your hero instead
         // of the roll. the chance check always runs so squad seeds stay in step.
         // wildcards live in the standard pool and make no sense hero-less
@@ -617,6 +671,21 @@ class RollViewModel(application: Application) : AndroidViewModel(application) {
         const val KEY_PACK_ARCHIVE = "pack_archive"
         const val KEY_DISABLED_HEROES = "disabled_heroes"
         const val KEY_CUSTOM_HEROES = "custom_heroes"
+        const val KEY_ROLE_OVERRIDES = "role_overrides"
+        const val KEY_REMOVED_DEFAULTS = "removed_defaults"
+
+        fun loadRoleOverrides(raw: String?): Map<String, Role> {
+            if (raw == null) return emptyMap()
+            return runCatching {
+                val json = JSONObject(raw)
+                buildMap {
+                    json.keys().forEach { name ->
+                        Role.entries.firstOrNull { it.name == json.optString(name) }
+                            ?.let { put(name, it) }
+                    }
+                }
+            }.getOrDefault(emptyMap())
+        }
 
         fun loadCustomHeroes(raw: String?): List<Hero> {
             if (raw == null) return emptyList()

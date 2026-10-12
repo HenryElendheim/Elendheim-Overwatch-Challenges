@@ -35,13 +35,12 @@ class RollEngine(seed: Long? = null) {
     fun rollHero(
         roleFilter: Role?,
         disabled: Set<String> = emptySet(),
-        extraHeroes: List<Hero> = emptyList(),
+        roster: List<Hero> = Roster.heroes,
     ): Hero {
-        val roster = Roster.heroes + extraHeroes
         val base = roleFilter?.let { r -> roster.filter { it.role == r } } ?: roster
-        // if someone bans an entire role's worth of heroes, roll from the full
-        // list rather than rolling nothing
-        val pool = base.filterNot { it.name in disabled }.ifEmpty { base }
+        // a role emptied by edits or a fully banned pool still rolls something
+        val safeBase = base.ifEmpty { roster.ifEmpty { Roster.heroes } }
+        val pool = safeBase.filterNot { it.name in disabled }.ifEmpty { safeBase }
         return pool.random(random)
     }
 

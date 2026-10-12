@@ -31,8 +31,9 @@ queue.
 - **Hero bans** live in settings too: the full roster is listed by role, and
   tapping a hero removes them from the roller until you tap them back in.
   Bans stick between launches. You can also add custom heroes with a role of
-  your choosing, so new releases never leave the app behind; your additions
-  are removable, the built-in roster isn't. Challenges can be locked to a
+  your choosing, so new releases never leave the app behind. The whole roster
+  is editable: change any hero's role or delete them, with built-ins only
+  hidden and a restore-to-defaults that undoes every edit. Challenges can be locked to a
   single hero, both in the standard pool and in your own rule packs.
 - **??? rolls**: about one roll in fifty skips the hero entirely and hands
   you a wildcard constraint that decides who you play. There's a switch in

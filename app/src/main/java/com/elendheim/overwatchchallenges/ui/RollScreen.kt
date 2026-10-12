@@ -98,7 +98,6 @@ import com.elendheim.overwatchchallenges.data.Hero
 import com.elendheim.overwatchchallenges.data.Intensity
 import com.elendheim.overwatchchallenges.data.PoolMode
 import com.elendheim.overwatchchallenges.data.Role
-import com.elendheim.overwatchchallenges.data.Roster
 import com.elendheim.overwatchchallenges.data.RulePack
 import com.elendheim.overwatchchallenges.engine.RollResult
 import com.elendheim.overwatchchallenges.ui.theme.DamageRed
@@ -395,10 +394,11 @@ private fun StartScreen(onRoll: () -> Unit, onSettings: () -> Unit) {
 private fun SpinScreen(state: RollUiState, onLanded: () -> Unit) {
     val result = state.result ?: return
     val reel = remember(state.rollId) {
-        val roster = Roster.heroes + state.customHeroes
+        val roster = state.activeRoster()
         val base = state.roleFilter?.let { r -> roster.filter { it.role == r } } ?: roster
-        val pool = base.filterNot { it.name in state.disabledHeroes }.ifEmpty { base }
-        buildReel(pool, result.hero, state.rollId)
+        val pool = base.filterNot { it.name in state.disabledHeroes }
+            .ifEmpty { base.ifEmpty { roster } }
+        buildReel(pool.ifEmpty { listOf(result.hero) }, result.hero, state.rollId)
     }
     // spin length is user-tuned; now and then the runout drags on for suspense
     val spinMillis = remember(state.rollId) {
@@ -863,8 +863,9 @@ private fun SwitchRow(title: String, description: String, checked: Boolean, onTo
 
 @Composable
 private fun SettingsRoot(state: RollUiState, onOpen: (String) -> Unit, onDone: () -> Unit) {
-    val totalHeroes = Roster.heroes.size + state.customHeroes.size
-    val activeHeroes = (Roster.heroes + state.customHeroes).count { it.name !in state.disabledHeroes }
+    val roster = state.activeRoster()
+    val totalHeroes = roster.size
+    val activeHeroes = roster.count { it.name !in state.disabledHeroes }
     val packsOn = state.rulePacks.count { it.enabled }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
@@ -962,7 +963,7 @@ private fun SquadSettings(state: RollUiState, viewModel: RollViewModel, onBack: 
             Spacer(Modifier.height(10.dp))
             Text(
                 text = "Everyone who enters the same word gets the same rolls, as long as " +
-                    "filters, hero bans, custom heroes and packs match and you tap in the " +
+                    "filters, hero bans, roster edits and packs match and you tap in the " +
                     "same order. Setting a word starts a fresh sequence.",
                 style = MaterialTheme.typography.bodySmall,
                 color = muted,
@@ -1700,8 +1701,11 @@ private fun TagPicker(allTags: List<String>, onPick: (String) -> Unit) {
 @Composable
 private fun HeroPoolSettings(state: RollUiState, viewModel: RollViewModel, onBack: () -> Unit) {
     val counts = state.showPoolCounts
-    val allHeroes = Roster.heroes + state.customHeroes
+    val allHeroes = state.activeRoster()
     val activeTotal = allHeroes.count { it.name !in state.disabledHeroes }
+    var editMode by remember { mutableStateOf(false) }
+    var editingHero by remember { mutableStateOf<Hero?>(null) }
+    var confirmRestore by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         SettingsHeader("Hero pool", "Back", onBack)
@@ -1742,6 +1746,16 @@ private fun HeroPoolSettings(state: RollUiState, viewModel: RollViewModel, onBac
                 color = muted,
             )
 
+            Spacer(Modifier.height(10.dp))
+            SwitchRow(
+                title = "Edit roster",
+                description = "While this is on, tapping a hero changes their role or deletes " +
+                    "them instead of banning them. Deleted built-ins are only hidden; " +
+                    "Restore default roster brings every edit back.",
+                checked = editMode,
+                onToggle = { editMode = !editMode },
+            )
+
             Role.entries.forEach { role ->
                 val roleHeroes = allHeroes.filter { it.role == role }
                 val activeInRole = roleHeroes.count { it.name !in state.disabledHeroes }
@@ -1766,11 +1780,22 @@ private fun HeroPoolSettings(state: RollUiState, viewModel: RollViewModel, onBac
                     roleHeroes.forEach { hero ->
                         FilterChip(
                             selected = hero.name !in state.disabledHeroes,
-                            onClick = { viewModel.toggleHero(hero.name) },
+                            onClick = {
+                                if (editMode) editingHero = hero
+                                else viewModel.toggleHero(hero.name)
+                            },
                             label = { Text(hero.name) },
                         )
                     }
                 }
+            }
+
+            if (editMode) {
+                Spacer(Modifier.height(14.dp))
+                OutlinedButton(
+                    onClick = { confirmRestore = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Restore default roster") }
             }
 
             HorizontalDivider(Modifier.padding(vertical = 16.dp))
@@ -1833,6 +1858,91 @@ private fun HeroPoolSettings(state: RollUiState, viewModel: RollViewModel, onBac
             ) { Text("Add hero") }
             Spacer(Modifier.height(20.dp))
         }
+    }
+
+    editingHero?.let { hero ->
+        val isCustom = state.customHeroes.any { it.name == hero.name }
+        var pickedRole by remember(hero.name) { mutableStateOf(hero.role) }
+        AlertDialog(
+            onDismissRequest = { editingHero = null },
+            title = { Text(hero.name) },
+            text = {
+                Column {
+                    Text(
+                        text = "ROLE",
+                        style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp),
+                        color = muted,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        Role.entries.forEachIndexed { index, role ->
+                            SegmentedButton(
+                                selected = pickedRole == role,
+                                onClick = { pickedRole = role },
+                                shape = SegmentedButtonDefaults.itemShape(
+                                    index = index,
+                                    count = Role.entries.size,
+                                ),
+                            ) { Text(role.label) }
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text = if (isCustom) {
+                            "One of yours. Deleting is permanent."
+                        } else {
+                            "Built-in. Deleting only hides them; Restore default roster " +
+                                "brings them back."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = muted,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.setHeroRole(hero.name, pickedRole)
+                        editingHero = null
+                    },
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        onClick = {
+                            viewModel.deleteHero(hero.name)
+                            editingHero = null
+                        },
+                    ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                    TextButton(onClick = { editingHero = null }) { Text("Cancel") }
+                }
+            },
+        )
+    }
+
+    if (confirmRestore) {
+        AlertDialog(
+            onDismissRequest = { confirmRestore = false },
+            title = { Text("Restore default roster?") },
+            text = {
+                Text(
+                    "Every role edit comes undone and every hidden built-in returns. " +
+                        "Custom heroes and bans are untouched."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.restoreRosterDefaults()
+                        confirmRestore = false
+                    },
+                ) { Text("Restore") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRestore = false }) { Text("Cancel") }
+            },
+        )
     }
 }
 
